@@ -33,6 +33,24 @@ If you use Claude Code's preview, a launch config is already provided
 (`.claude/launch.json`, server name `simulator`) and it uses the live-reload
 server.
 
+## Neumorphic UI (branch `neu-ui`)
+
+The screens in this branch use a neumorphic design system that the firmware has
+not been ported to yet, so `sync.py` will report drift until it is.
+
+- `js/neu_ui.js` is the UI kit and the spec for `src/screens/neu_ui.{h,cpp}`:
+  colour tokens, `neuRaised()` / `neuInset()` surfaces (built only from
+  `fillRoundRect`), the header with its machine-state chip, the nav bar, fields,
+  segmented controls, lists and dialogs.
+- `js/gfxfonts.js` holds LovyanGFX's FreeSans fonts (Adafruit GFX format);
+  `lgfx.js` renders them with LovyanGFX's own metrics (baseline = max ascent).
+- `js/screens/probe_kit.js` is the shared layout for the probe routine screens.
+- Rules: raised = pressable, inset = readout / field / selected option; orange
+  means focus only; Home is always bottom-left; Start and Stop are the only
+  solid-filled buttons.  Every `update*()` function keeps a change key and
+  repaints only what changed.
+- `../mockups/` holds the static design gallery the screens were built from.
+
 ## Using it
 
 - **Touch** — click anywhere on the screen; taps hit the same rectangles the

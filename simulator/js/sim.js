@@ -32,11 +32,11 @@ const SCREENS = {
 
 const SCREEN_LABELS = {
   [PSCREEN_BOOT]: "Boot Logo", [PSCREEN_MAIN_MENU]: "Main Menu", [PSCREEN_STATUS]: "Status", [PSCREEN_JOG_HOMING]: "Jog & Homing",
-  [PSCREEN_PROBING_WORK]: "Work Area", [PSCREEN_PROBE]: "Probe Hub", [PSCREEN_PROBE_CFG_3D]: "Probe Config (3D)",
-  [PSCREEN_PROBE_CFG_PLATE]: "Probe Config (Plate)", [PSCREEN_PROBE_Z]: "Probe: Z Surface",
+  [PSCREEN_PROBING_WORK]: "Work Area", [PSCREEN_PROBE]: "Probe Hub", [PSCREEN_PROBE_CFG_3D]: "Probe Setup (3D)",
+  [PSCREEN_PROBE_CFG_PLATE]: "Plate Setup", [PSCREEN_PROBE_Z]: "Probe: Z Surface",
   [PSCREEN_PROBE_CORNER]: "Probe: XYZ Corner", [PSCREEN_PROBE_BORE]: "Probe: Bore", [PSCREEN_PROBE_BOSS]: "Probe: Boss",
-  [PSCREEN_FEEDS_SPEEDS]: "Feeds & Speeds", [PSCREEN_SPINDLE_CONTROL]: "Spindle Control",
-  [PSCREEN_MACROS]: "Macros", [PSCREEN_SD_CARD]: "SD Card", [PSCREEN_FLUIDNC]: "FluidNC Info", [PSCREEN_CONNECTION]: "Connection", [PSCREEN_ESPNOW_PAIR]: "ESP-NOW Pairing", [PSCREEN_ESPNOW_MACHINES]: "Machines",
+  [PSCREEN_FEEDS_SPEEDS]: "Overrides", [PSCREEN_SPINDLE_CONTROL]: "Spindle Control",
+  [PSCREEN_MACROS]: "Macros", [PSCREEN_SD_CARD]: "Files", [PSCREEN_FLUIDNC]: "FluidNC Info", [PSCREEN_CONNECTION]: "Connection", [PSCREEN_ESPNOW_PAIR]: "ESP-NOW Pairing", [PSCREEN_ESPNOW_MACHINES]: "Machines",
 };
 
 let display;

@@ -47,7 +47,7 @@ function espNowLinkFault() {
 function updateMainMenuDisplay() {
   if (currentPendantScreen !== PSCREEN_MAIN_MENU) return;
   const st = pendantMachine.status, fault = espNowLinkFault();
-  const syncing = !pendantSynced || st === "N/C" || st.length === 0;
+  const syncing = !pendantConnected || !pendantSynced || st === "N/C" || st.length === 0;
   const mode = fault ? "fault:" + fault.big : syncing ? "sync:" + pendantConnected : st.startsWith("Alarm") ? "alarm:" + st : "dro";
   const key = mode + "|" + (mode === "dro" ? neuDroKey() : "");
   if (key === _menuKey) return;

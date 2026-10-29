@@ -1,106 +1,77 @@
-/* screen_probe.cpp port — SCR0 probe hub */
+/* screen_probe.cpp — SCR0 probe hub, neumorphic layout
+ *   probe type   segmented  Z Plate / XYZ / 3D
+ *   shared       2x2 fields (tap = dial adjusts it; tap again or elsewhere releases)
+ *   routines     1, 2 or 4 raised buttons depending on the probe type
+ *   nav          Home | Configure (plate or 3D probe setup)
+ */
 
-const kProbeTypeLabels = ["Z Plate", "XYZ Plate", "3D Probe"];
-const kProbeTypeX = [5, 82, 159];
-const kProbeTypeW = [74, 74, 76];
+const kProbeTypeLabels = ["Z Plate", "XYZ", "3D"];
+const PRB_TYPE_Y = 38, PRB_TYPE_H = 36;
+const PRB_FIELDS = [[10, 96], [124, 96], [10, 144], [124, 144]], PRB_FW = 106, PRB_FH = 40;
+const PRB_ROUT_Y = 208;
+const PROBE_NAV = [NAV_HOME, { id: "cfg", label: "Configure", icon: "gear" }];
 
 function enterProbe() {
   pendantProbeV2.focusedField = -1;
   pendantProbeV2.confirmActive = false;
   pendantProbeV2.dialAccelCount = 0;
 }
-function exitProbe() {}
+function exitProbe() { pendantProbeV2.focusedField = -1; }
 
 function drawProbeTypeRow() {
-  for (let i = 0; i < PROBE_TYPE_COUNT; i++) {
-    const sel = pendantProbeV2.probeTypeIdx === i;
-    drawButton(kProbeTypeX[i], 38, kProbeTypeW[i], 40, kProbeTypeLabels[i],
-      sel ? PROBE_C_YELLOW : COLOR_BUTTON_GRAY, COLOR_WHITE, 1);
-  }
+  neuClear(10, PRB_TYPE_Y, 220, PRB_TYPE_H);
+  neuSegmented(10, PRB_TYPE_Y, 220, PRB_TYPE_H, kProbeTypeLabels, pendantProbeV2.probeTypeIdx);
 }
 
-// Redraw ONLY the shared-settings KV fields (opaque) — full draw + dial handler use it.
+// Repaint ONLY the shared-settings fields — the dial handler calls this per detent.
 function updateProbeSharedFields() {
   if (currentPendantScreen !== PSCREEN_PROBE) return;
-  const fo = pendantProbeV2.focusedField;
-  probeDrawKVTouch(7, 94, 112, 33, "Probe rate", pendantProbeV2.probeRate, "mm/m", PROBE_C_BLUE, fo === 0, 0);
-  probeDrawKVTouch(122, 94, 111, 33, "Seek rate", pendantProbeV2.seekRate, "mm/m", PROBE_C_BLUE, fo === 1, 0);
-  probeDrawKVTouch(7, 130, 112, 33, "Retract", pendantProbeV2.retractDist, "mm", PROBE_C_BLUE, fo === 2, 1);
-  probeDrawKVTouch(122, 130, 111, 33, "Max Z trvl", pendantProbeV2.maxZTravel, "mm", PROBE_C_BLUE, fo === 3, 1);
+  const p = pendantProbeV2, fo = p.focusedField, u = pendantMachine.inInches ? "in" : "mm";
+  const vals = [["Probe", fmtF(p.probeRate, 0), u + "/m"], ["Seek", fmtF(p.seekRate, 0), u + "/m"],
+                ["Retract", fmtF(p.retractDist, 1), u], ["Max Z", fmtF(p.maxZTravel, 1), u]];
+  vals.forEach(([c, v, un], i) => neuFieldValue(PRB_FIELDS[i][0], PRB_FIELDS[i][1], PRB_FW, PRB_FH, c, v, un, { focus: fo === i }));
 }
 
-function drawSharedKVPanel() {
-  display.fillRoundRect(5, 82, 230, 84, 4, PROBE_BG_PANEL);
-  display.setTextSize(1);
-  display.setTextColor(PROBE_C_LBLUE);
-  display.setCursor(10, 84);
-  display.print("SHARED SETTINGS");
-  updateProbeSharedFields();
-}
-
-function drawRoutineButtons() {
-  display.fillRoundRect(5, 170, 230, 104, 4, PROBE_BG_PANEL);
-  display.setTextSize(1);
-  display.setTextColor(PROBE_C_LBLUE);
-  display.setCursor(10, 172);
-  display.print("PROBE ROUTINES");
+function _probeRoutines() {
   const n = probeRoutineCount();
-  if (n === 1) {
-    drawButton(7, 186, 226, 40, "Z Surface", PROBE_BTN_GREEN, COLOR_WHITE, 2);
-  } else if (n === 2) {
-    // XYZ Plate — two full-width buttons, one per row.
-    drawButton(7, 186, 226, 40, "Z Surface", PROBE_BTN_GREEN, COLOR_WHITE, 2);
-    drawButton(7, 230, 226, 40, "XYZ Corner", PROBE_BTN_INDIGO, COLOR_WHITE, 2);
-  } else {  // n === 4 (3D probe) — 2x2 grid
-    drawButton(7, 186, 112, 40, "Z Surf", PROBE_BTN_GREEN, COLOR_WHITE, 2);
-    drawButton(121, 186, 112, 40, "XYZ Cnr", PROBE_BTN_INDIGO, COLOR_WHITE, 2);
-    drawButton(7, 230, 112, 40, "Bore", PROBE_BTN_BLUE, COLOR_WHITE, 2);
-    drawButton(121, 230, 112, 40, "Boss", PROBE_BTN_PURPLE, COLOR_WHITE, 2);
-  }
+  if (n === 1) return [{ x: 10, y: PRB_ROUT_Y, w: 220, h: 60, label: "Z Surface", to: PSCREEN_PROBE_Z, icon: "probe", font: "B12" }];
+  if (n === 2) return [{ x: 10, y: PRB_ROUT_Y, w: 104, h: 60, label: "Z Surface", to: PSCREEN_PROBE_Z },
+                       { x: 126, y: PRB_ROUT_Y, w: 104, h: 60, label: "Corner", to: PSCREEN_PROBE_CORNER }];
+  return [["Z Surface", PSCREEN_PROBE_Z], ["Corner", PSCREEN_PROBE_CORNER], ["Bore", PSCREEN_PROBE_BORE], ["Boss", PSCREEN_PROBE_BOSS]]
+    .map(([label, to], i) => ({ x: 10 + (i % 2) * 116, y: PRB_ROUT_Y + (i >> 1) * 34, w: 104, h: 28, label, to }));
 }
 
 function drawProbeScreen() {
-  display.fillScreen(PROBE_BG_SCREEN);
-  drawTitle("PROBE");
+  neuHeader("Probe");
   drawProbeTypeRow();
-  drawSharedKVPanel();
-  drawRoutineButtons();
-  // Bottom row — two equal halves: Main Menu | Configure
-  drawButton(5, 280, 112, 38, "Main Menu", PROBE_BTN_BLUE, COLOR_WHITE, 2);
-  drawButton(123, 280, 112, 38, "Configure", PROBE_BTN_TEAL, COLOR_WHITE, 2);
+  neuCaption("Shared settings", 12, 84);
+  PRB_FIELDS.forEach(([x, y]) => neuInset(x, y, PRB_FW, PRB_FH, 8, 3));
+  updateProbeSharedFields();
+  neuCaption("Routines", 12, 196);
+  for (const r of _probeRoutines()) neuButton(r.x, r.y, r.w, r.h, r.label, { icon: r.icon ? NEU_ICON[r.icon] : null, font: r.font });
+  neuNav(PROBE_NAV);
 }
 
 function handleProbeTouch(x, y) {
-  // Bottom row — Main Menu (left half) | Configure (right half)
-  if (isTouchInBounds(x, y, 5, 280, 112, 38)) { currentPendantScreen = PSCREEN_MAIN_MENU; return; }
-  if (isTouchInBounds(x, y, 123, 280, 112, 38)) {
-    pendantProbeV2.returnScreen = PSCREEN_PROBE;
-    currentPendantScreen = probeIs3D() ? PSCREEN_PROBE_CFG_3D : PSCREEN_PROBE_CFG_PLATE;
-    return;
-  }
-  for (let i = 0; i < PROBE_TYPE_COUNT; i++) {
-    if (isTouchInBounds(x, y, kProbeTypeX[i], 38, kProbeTypeW[i], 40)) {
-      if (pendantProbeV2.probeTypeIdx !== i) { pendantProbeV2.probeTypeIdx = i; drawProbeScreen(); }
+  const p = pendantProbeV2;
+  const t = neuSegHit(10, PRB_TYPE_Y, 220, PRB_TYPE_H, PROBE_TYPE_COUNT, x, y);
+  if (t >= 0) { if (p.probeTypeIdx !== t) { p.probeTypeIdx = t; p.focusedField = -1; drawProbeScreen(); } return; }
+  for (let i = 0; i < 4; i++) {
+    if (isTouchInBounds(x, y, PRB_FIELDS[i][0], PRB_FIELDS[i][1], PRB_FW, PRB_FH)) {
+      p.focusedField = p.focusedField === i ? -1 : i;
+      updateProbeSharedFields();
       return;
     }
   }
-  let redraw = false;
-  if (isTouchInBounds(x, y, 7, 94, 112, 33)) { pendantProbeV2.focusedField = pendantProbeV2.focusedField === 0 ? -1 : 0; redraw = true; }
-  if (isTouchInBounds(x, y, 122, 94, 111, 33)) { pendantProbeV2.focusedField = pendantProbeV2.focusedField === 1 ? -1 : 1; redraw = true; }
-  if (isTouchInBounds(x, y, 7, 130, 112, 33)) { pendantProbeV2.focusedField = pendantProbeV2.focusedField === 2 ? -1 : 2; redraw = true; }
-  if (isTouchInBounds(x, y, 122, 130, 111, 33)) { pendantProbeV2.focusedField = pendantProbeV2.focusedField === 3 ? -1 : 3; redraw = true; }
-  if (redraw) { drawSharedKVPanel(); return; }
-  const n = probeRoutineCount();
-  if (n === 1) {
-    if (isTouchInBounds(x, y, 7, 186, 226, 40)) { currentPendantScreen = PSCREEN_PROBE_Z; return; }
-  } else if (n === 2) {
-    if (isTouchInBounds(x, y, 7, 186, 226, 40)) { currentPendantScreen = PSCREEN_PROBE_Z; return; }
-    if (isTouchInBounds(x, y, 7, 230, 226, 40)) { currentPendantScreen = PSCREEN_PROBE_CORNER; return; }
-  } else {  // n === 4
-    if (isTouchInBounds(x, y, 7, 186, 112, 40)) { currentPendantScreen = PSCREEN_PROBE_Z; return; }
-    if (isTouchInBounds(x, y, 121, 186, 112, 40)) { currentPendantScreen = PSCREEN_PROBE_CORNER; return; }
-    if (isTouchInBounds(x, y, 7, 230, 112, 40)) { currentPendantScreen = PSCREEN_PROBE_BORE; return; }
-    if (isTouchInBounds(x, y, 121, 230, 112, 40)) { currentPendantScreen = PSCREEN_PROBE_BOSS; return; }
+  for (const r of _probeRoutines()) {
+    if (isTouchInBounds(x, y, r.x, r.y, r.w, r.h)) { p.focusedField = -1; currentPendantScreen = r.to; return; }
   }
-  if (y >= 82 && y <= 166) { pendantProbeV2.focusedField = -1; drawSharedKVPanel(); }
+  const n = neuNavHit(PROBE_NAV, x, y);
+  if (n === "home") { currentPendantScreen = PSCREEN_MAIN_MENU; return; }
+  if (n === "cfg") {
+    p.returnScreen = PSCREEN_PROBE;
+    currentPendantScreen = probeIs3D() ? PSCREEN_PROBE_CFG_3D : PSCREEN_PROBE_CFG_PLATE;
+    return;
+  }
+  if (p.focusedField >= 0) { p.focusedField = -1; updateProbeSharedFields(); }   // tap elsewhere releases the dial
 }

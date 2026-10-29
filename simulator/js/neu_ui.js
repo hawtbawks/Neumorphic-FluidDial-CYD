@@ -151,7 +151,8 @@ let _neuChipKey = "";
 function _neuChip() {
   const st = neuChipState();
   const w = neuTextW(st.label, "B9") + 26, x = 232 - w;
-  display.fillRect(118, 1, 122, 28, NEU_BG);             // chip zone: x 118..240
+  const clearX = Math.min(x - 52, 10 + neuTextW(_neuTitle, "B9") + 4);   // chip + icon zone, never the title
+  display.fillRect(clearX, 1, 240 - clearX, 28, NEU_BG);
   neuInset(x, 5, w, 20, 10, 2);
   neuLed(x + 11, 15, st.color, 3);
   neuText(st.label, x + 19, neuCapBase(5, 20, "B9"), "B9", st.color);
@@ -289,8 +290,9 @@ function neuFieldValue(x, y, w, h, cap, value, unit, o = {}) {
   display.drawRoundRect(x - 3, y - 3, w + 6, h + 6, 11, o.focus ? NEU_ACCENT : NEU_BG);
   display.drawRoundRect(x - 2, y - 2, w + 4, h + 4, 10, o.focus ? NEU_ACCENT : NEU_BG);
   display.fillRect(x + 4, y + 4, w - 7, h - 7, NEU_WELL);
-  neuCaption(cap, x + 9, y + 7, o.focus ? NEU_ACCENT : NEU_TEXT3);
-  const vf = o.font || "B12", base = y + h - 7;
+  const pad = h < 38 ? 5 : 7;          // short fields pull caption and value toward the edges
+  neuCaption(cap, x + 9, y + pad, o.focus ? NEU_ACCENT : NEU_TEXT3);
+  const vf = o.font || "B12", base = y + h - pad;
   if (o.align === "R") {
     const uw = unit ? neuCaptionW(unit) + 4 : 0;
     if (unit) neuCaption(unit, x + w - 9, base - 7, NEU_TEXT3, "R");
@@ -314,20 +316,24 @@ function neuHint(msg, y, color = NEU_HOLD) {
   display.fillRect(x + 5, y + 3, 1, 2, NEU_BG);
   neuSmall(msg, x + 16, y, color);
 }
-// Modal dialog (confirm overlay).  Returns button rects for hit testing.
-function neuDialog(title, body, cancelLabel, okLabel, okColor = NEU_RUN) {
+// Modal dialog.  okLabel null = no buttons (progress); cancelLabel null = a single
+// centred OK.  Returns button rects for hit testing (missing buttons are absent).
+function neuDialog(title, body, cancelLabel, okLabel, okColor = NEU_RUN, titleColor = NEU_TEXT) {
   // dim the screen behind with a 2px checker — cheap and AA-free
   for (let yy = 32; yy < 320; yy += 2) for (let xx = (yy >> 1) & 1; xx < 240; xx += 2) display.fillRect(xx, yy, 1, 1, NEU_SH_DARK);
   neuRaised(18, 92, 204, 138, 14, 3, NEU_BG);
-  neuText(title, 120, 120, "B12", NEU_TEXT, "C");
+  neuText(title, 120, 120, "B12", titleColor, "C");
   const lines = Array.isArray(body) ? body : [body];
   lines.forEach((l, i) => neuSmall(l, 120, 134 + i * 12, NEU_TEXT2, "C"));
-  const c = { x: 32, y: 180, w: 80, h: 36 }, k = { x: 124, y: 180, w: 84, h: 36 };
-  neuButton(c.x, c.y, c.w, c.h, cancelLabel, { color: NEU_TEXT2 });
-  neuButton(k.x, k.y, k.w, k.h, okLabel, { color: okColor });
-  return { cancel: c, ok: k };
+  const out = {};
+  if (okLabel && cancelLabel) {
+    out.cancel = { x: 32, y: 180, w: 80, h: 36 }; out.ok = { x: 124, y: 180, w: 84, h: 36 };
+    neuButton(out.cancel.x, out.cancel.y, out.cancel.w, out.cancel.h, cancelLabel, { color: NEU_TEXT2 });
+  } else if (okLabel) out.ok = { x: 72, y: 180, w: 96, h: 36 };
+  if (out.ok) neuButton(out.ok.x, out.ok.y, out.ok.w, out.ok.h, okLabel, { color: okColor });
+  return out;
 }
-function neuDialogHit(r, x, y) { return x >= r.x - 4 && x <= r.x + r.w + 4 && y >= r.y - 4 && y <= r.y + r.h + 4; }
+function neuDialogHit(r, x, y) { return !!r && x >= r.x - 4 && x <= r.x + r.w + 4 && y >= r.y - 4 && y <= r.y + r.h + 4; }
 
 // ---------- icons: 18x18 box centred on (cx,cy), 2 px strokes.  bg = surface colour behind ----------
 function _L2(x0, y0, x1, y1, c) { display.drawLine(x0, y0, x1, y1, c); display.drawLine(x0 + 1, y0, x1 + 1, y1, c); display.drawLine(x0, y0 + 1, x1, y1 + 1, c); }
