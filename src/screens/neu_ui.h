@@ -97,6 +97,9 @@ void neuLed(int cx, int cy, uint16_t color, int r = 3, uint16_t bg = NEU_WELL);
 void neuFillRect(int x, int y, int w, int h, uint16_t color);
 void neuFillRoundRect(int x, int y, int w, int h, int r, uint16_t color);
 void neuDrawRoundRect(int x, int y, int w, int h, int r, uint16_t color);
+void neuFillCircle(int cx, int cy, int r, uint16_t color);
+void neuDrawCircle(int cx, int cy, int r, uint16_t color);
+void neuDrawLine(int x0, int y0, int x1, int y1, uint16_t color);
 
 // ---------- state ----------
 uint16_t neuStateColor(const char* status);

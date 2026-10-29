@@ -89,6 +89,9 @@ static void circle(int x, int y, int r, uint16_t c) { s_g->drawCircle(x + s_dx, 
 static void fillCircle(int x, int y, int r, uint16_t c) { s_g->fillCircle(x + s_dx, y + s_dy, r, c); }
 static void drawRect(int x, int y, int w, int h, uint16_t c) { s_g->drawRect(x + s_dx, y + s_dy, w, h, c); }
 static void pixel(int x, int y, uint16_t c) { s_g->drawPixel(x + s_dx, y + s_dy, c); }
+void neuFillCircle(int cx, int cy, int r, uint16_t c) { fillCircle(cx, cy, r, c); }
+void neuDrawCircle(int cx, int cy, int r, uint16_t c) { circle(cx, cy, r, c); }
+void neuDrawLine(int x0, int y0, int x1, int y1, uint16_t c) { line(x0, y0, x1, y1, c); }
 
 // ---------- text ----------
 // Width is the sum of xAdvance, as in the simulator.  (LovyanGFX's textWidth()
