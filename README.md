@@ -1,17 +1,23 @@
-# FluidDial-CYD: 
-FluidDial-CYD is a custom firmware for CYD-equipped FluidDial CNC pendants. The UI has been rebuilt from the ground up for devices with 3 physical buttons and a jog dial. Supports both **resistive (XPT2046)** and **capacitive (CST816S)** CYD screen variants. 
+# FluidDial-CYD:
+FluidDial-CYD is a custom firmware for CYD-equipped FluidDial CNC pendants. The UI has been rebuilt from the ground up for devices with 3 physical buttons and a jog dial. Supports both **resistive (XPT2046)** and **capacitive (CST816S)** CYD screen variants.
 
 Runs **wired over UART** or **wireless over ESP-NOW** (requires FluidNC v4.0.4+), with **Li-Ion battery** support for a fully untethered pendant.
+
+This branch (`neu-ui`) gives every screen a new **neumorphic** look: soft raised buttons and pressed-in readouts on a single slate surface, FreeSans type, and the machine state in a coloured chip at the top of every screen. Pictures and details are in [The neumorphic UI](#-the-neumorphic-ui) below.
+
+<img src="new_ui/neumorphic/overview.png" alt="Main Menu, Jog, Status and XYZ Corner screens of the neumorphic UI" width="100%">
 
 Feedback is welcome - If you find an issue or have a request for improvements, please log an [Issue](https://github.com/dJOS1475/FluidDial-CYD/issues) and I'll investigate.
 
 **Updates:**
-See [CHANGELOG.md](https://github.com/dJOS1475/FluidDial-CYD/blob/main/CHANGELOG.md)
+See [CHANGELOG.md](CHANGELOG.md)
 
 <img src="https://raw.githubusercontent.com/dJOS1475/FluidDial-CYD/refs/heads/main/new_ui/Pendant5.jpeg" alt="CYD Dial Pendant With Buttons and Jog Dial" height="500">
 
-**Web Installer** (use Chrome/Edge): 
+**Web Installer** (use Chrome/Edge):
 https://djos1475.github.io/FluidDial-CYD/
+
+> The web installer and the [Releases page](https://github.com/dJOS1475/FluidDial-CYD/releases) install the current release, which uses the previous UI. To run the neumorphic UI, build and flash this branch — see [Building from source](#building-from-source).
 
 * Unplug the RJ12 connection between the CYD and the FluidNC controller
 * Connect the CYD USB port to your computer
@@ -27,7 +33,7 @@ If you have problems with the Web Installer, close VS Code / PlatformIO first �
 
 ## 🎯 Design Goals
 
-All menu navigation and as many features as possible are managed via the touch screen. The physical jog dial context-switches depending on the active screen — it only moves the CNC machine on the Jog & Homing screen (a safety feature), and serves other purposes elsewhere.
+All menu navigation and as many features as possible are managed via the touch screen. The physical jog dial context-switches depending on the active screen — it only moves the CNC machine on the Jog screen (a safety feature), and serves other purposes elsewhere.
 
 The 3 physical buttons always perform the same function regardless of the active screen:
 * **Red:** Cancel — soft reset, stops all motion and spindle, clears alarm state. Position is retained and no rehoming is required. The cancelled operation cannot be resumed with Green.
@@ -37,80 +43,187 @@ The 3 physical buttons always perform the same function regardless of the active
 
 ---
 
+## ✨ The neumorphic UI
+
+Every screen is drawn from one small kit (`src/screens/neu_ui.h`), so the whole pendant behaves the same way everywhere:
+
+* **Raised means you can press it; pressed-in means it's a readout, a field, or the option that's selected.** Tapping a toggle moves it from raised to pressed-in.
+* **Orange means focus**, and only focus: the selected option, the field the dial is adjusting (an orange ring), and the primary action.
+* **The machine state is always in the top right**, in a coloured chip with an LED dot: OFFLINE, SYNC, IDLE, RUN, JOG, HOME, HOLD, ALARM and so on. On a wireless pendant the signal bars and battery sit beside it.
+* **Home is always the bottom-left button**, with Back beside it where there is one.
+* **Anything that moves the machine from a tap asks first**: Go to zero, every probe routine, the deflection calibration, and forgetting a paired machine.
+* **Start and Stop on the Spindle screen are the only solid-coloured buttons.**
+* Numbers update in place without flicker; only what changed is redrawn.
+
+The boot logo has new artwork to match, on the same slate background.
+
+<p>
+<img src="new_ui/neumorphic/01-boot.png" alt="Boot logo" width="200">
+<img src="new_ui/neumorphic/02-main-menu.png" alt="Main Menu" width="200">
+<img src="new_ui/neumorphic/03-main-menu-alarm.png" alt="Main Menu in alarm" width="200">
+</p>
+
+**Colours** (RGB565 is the value the panel shows):
+
+| Use | Hex | | Use | Hex |
+|---|---|---|---|---|
+| Background | `#2C3038` | | Focus (orange) | `#FF9630` |
+| Readout interior | `#25282F` | | Idle | `#60D0C8` |
+| Text | `#E4E8EE` | | Run | `#5CDC80` |
+| Secondary text | `#969EAC` | | Hold / Door | `#FFBE40` |
+| Captions | `#646C7A` | | Alarm | `#FF5454` |
+| Axis X / Y / Z | `#FF7068` / `#70E080` / `#68A8FF` | | Jog / Home | `#6EA8FF` / `#B08CFF` |
+
+Screens can be tried in a browser without hardware — see [Simulator](#simulator).
+
+---
+
 ## 🖥️ Screens & Features
 
-**Main Menu** — touch navigation to all screens. Shows live machine status; alarm states display a human-readable description in red (e.g. "Hard limit triggered").
+### Main Menu
+Eight tiles: **Jog, Work, Overrides, Spindle, Macros, Files, Probe, Status**. The card at the top shows the work and machine position (DRO). When something matters more it shows that instead: **Connecting… / Syncing…** while the link comes up, the alarm in plain words (e.g. "Hard limit") with a reminder to home or unlock, or an ESP-NOW problem (radio down, not paired, reconnecting to *machine*), labelled ESP-NOW so a link fault never looks like a machine alarm.
 
-**Status** — live DRO showing machine position, feed rate, spindle RPM, active file, and machine state. Axis count is detected automatically from the connected controller. Alarm states show a human-readable description in red. When an SD job is running, the status row splits into two columns — left shows machine state (Run / Hold / etc.), right shows live job progress as a percentage in green. When a file has been queued via the SD Card Load button, the screen shows "READY — press green to run" with the filename highlighted in green until the job starts.
+### Status
 
-**Jog & Homing**
-* Jog dial moves the selected axis by the chosen increment; the DRO shows **machine coordinates** (MPos)
-* **Handwheel stop** — a single deliberate detent completes its full move, but during a **continuous spin** the axis stops the moment you stop turning (the pendant sends a real-time jog-cancel), so it doesn't coast through queued moves — like a full-size MPG
-* Four increment slots — the first three are fixed, the fourth is a **DIAL box** holding the coarse values
-  * Metric: 0.01 / 0.1 / 1 mm, then **10 / 50 / 100 mm** in the DIAL box
-  * Imperial: .001 / .010 / .100 in, then **.5 / 2.0 / 4.0 in** in the DIAL box
-  * **First tap selects** the coarse increment — you carry on jogging with it, just like the other three slots. A **second tap** hands the encoder over to stepping 10/50/100 (the box highlights yellow and the DRO reads "JOG INCREMENT"). A further tap hands the encoder back to jogging and restores the axis you were on; tapping an axis does the same
-  * The selected increment and the DIAL box's value are saved to flash and restored on reboot
-* Units detected automatically from the controller (G20/G21) — no manual switching needed
-* The **A axis** (4th axis) is treated as rotary — its DRO shows a **degree symbol (°)** instead of mm/in; X/Y/Z use mm/in as normal
-* Axis selection and increment buttons on screen
-* Home buttons for each detected axis, plus an "ALL" home button on 3-axis machines
-* Only axes present on the connected machine are shown
-* Alarm state (e.g. from a limit switch) is displayed in red where the unit label normally appears
-* **Speed field** (bottom row, between Main Menu and Work Area) — a tap-to-edit field (same style as the Probe screens) showing the current jog speed; tap to adjust it with the dial in 100 mm/min steps (metric) or 10 ipm steps (imperial); the field highlights while active; tap any axis to return to jogging
-* Velocity scaling — turning the dial faster proportionally increases the jog feed rate up to 8× the base speed, giving a natural acceleration feel
-* Jog feed rate is capped at the controller's X-axis maximum (`$110`), read automatically on entry to the screen
+<img src="new_ui/neumorphic/04-status-job.png" alt="Status screen with a job running" width="200" align="right">
+
+* **State card** — the machine state in large coloured type with its LED; job progress (%) on the right while a job runs. Long words such as "Connecting" drop a size rather than being cut short.
+* **Job card** — the running file with a progress bar, or **Ready — Press green** with the file name after Load on the Files screen, or "No job running".
+* **DRO** — work position (large) and machine position (small) for every axis the controller reports; 4–6 axis machines get two columns of work positions.
+* **Feed** and **Spindle** (with direction) readouts.
+* Bottom bar: Home | FluidNC.
+
+<br clear="right">
+
+### Jog
+
+<p>
+<img src="new_ui/neumorphic/05-jog.png" alt="Jog screen" width="200">
+<img src="new_ui/neumorphic/06-jog-feed-dial.png" alt="Jog screen with the dial setting the feed" width="200">
+</p>
+
+* **One row per axis** — tap a row to give that axis the dial. The selected row is pressed in and marked **DIAL**; the large number is the **work position**, the small grey one the machine position. While homing, the axis being homed shows **HOMING**.
+* **Handwheel stop** — a single deliberate detent completes its full move, but during a **continuous spin** the axis stops the moment you stop turning (the pendant sends a real-time jog-cancel), so it doesn't coast through queued moves — like a full-size MPG.
+* **Step** — 0.01 / 0.1 / 1 mm plus a **coarse slot** holding 10 / 50 / 100 mm (imperial: .001 / .010 / .100 in, then .5 / 2.0 / 4.0 in). Three dots under the coarse slot show which value it holds.
+  * **First tap** selects the coarse step and you keep jogging. A **second tap** hands the dial to choosing 10 / 50 / 100 (orange ring, "DIAL PICKS STEP"). A **third tap**, or tapping an axis, hands the dial back to jogging on the axis you were on.
+  * The selected step and the coarse value are saved and restored on reboot.
+* Units follow the controller (G20/G21). The A axis is rotary, so its steps are labelled in degrees.
+* **Home** — one button per axis in its axis colour, plus **All** on 3-axis machines.
+* **Feed** — the bottom bar shows the jog feed (e.g. **F 5000**). Tap it and the dial sets the feed: 500 mm/min (20 ipm) per detent, from 1000 mm/min up to the controller's X maximum rate (`$110`). Tap it again to go back to jogging. The number shown is always the feed that is sent, and it can be set before the controller is connected.
+* Velocity scaling — turning the dial faster proportionally increases the jog feed rate up to 8× the base speed, giving a natural acceleration feel.
+* In alarm the step row says **ALARM: UNLOCK TO JOG**.
 * **Soft-limit clamp** — once the machine is homed, the pendant clamps every jog so an axis's **absolute machine position can't leave its travel envelope**, preventing a fast or repeated jog from driving into a hard stop. The per-axis envelope is read from the controller's per-axis travel (`$130–$132`) and homing-direction mask (`$23`), so machines that home in different directions per axis work correctly. This engages only for homed X/Y/Z axes; it does not replace controller soft limits.
   * **Recommended:** also enable FluidNC's own soft limits as the authoritative backstop — set `$20=1` (soft limits) with `$22=1` (homing) in your FluidNC config. With `$20=1`, FluidNC itself rejects any over-travel move regardless of source. FluidNC ships with `$20=0` (off) by default.
+* Bottom bar: Home | Feed | Work.
 
-**Work Area (Probing Work)**
-* Coordinate system selection (G54–G57)
-* Displays Machine Position (absolute machine coordinates) and Work Position (DRO / work coordinate values); Work Position updates live as the machine moves
-* Zero individual axes or all at once for the selected coordinate system
+### Work Area
 
-**Probing**
-* Opens on a hub with a **probe-type selector** — choose **Z-Height Touch Plate**, **XYZ Touch Plate**, or **3D Touch Probe**; the routines on offer change to match the selected type
+<p>
+<img src="new_ui/neumorphic/07-work-area.png" alt="Work Area screen" width="200">
+<img src="new_ui/neumorphic/08-work-go-to-zero.png" alt="Go to X0 Y0 confirmation" width="200">
+</p>
+
+* **G54 / G55 / G56 / G57** — selecting one also makes it active on the controller.
+* **DRO** — work and machine position.
+* **Set zero here** — X, Y, Z (each axis the machine has) or **All**, in the selected coordinate system (`G10 L20 P<n>`).
+* **Go to zero** *(new)* — **XY0** rapids to X0 Y0 and **Z0** lowers Z to the work surface, in the active coordinate system. Both ask first, with a reminder to check Z is clear of clamps.
+* Bottom bar: Home | Jog.
+
+### Overrides *(was Feeds & Speeds)*
+
+<img src="new_ui/neumorphic/09-overrides.png" alt="Overrides screen with the feed card on the dial" width="200" align="right">
+
+* A **feed** card and a **spindle** card, each with the override % and the actual feed or RPM.
+* **Tap a card, then turn the dial** — 10% per detent; the card gets an orange ring. Tap it again to release the dial.
+* Presets **50 / 75 / 100 / 125 / 150%** under each card; the preset matching the current value is highlighted. **Reset to 100%** in the bottom bar.
+* Overrides ramp to the target with **paced coarse+fine steps** anchored off the current value (one realtime byte every ~60 ms) rather than a burst — gentle on a Modbus VFD and safe to use during a running job. The card shows the target straight away while the ramp catches up.
+
+<br clear="right">
+
+### Spindle
+
+<img src="new_ui/neumorphic/10-spindle.png" alt="Spindle screen while running" width="200" align="right">
+
+* **RPM card** — actual RPM on the left, **target** RPM on the right. Tap the card to set the target with the dial: 100 RPM steps for spindles up to 10 000 RPM, 1 000 RPM above that, clamped to the controller's range.
+* **Fwd M3 / Rev M4**.
+* **Presets** — a quarter, half and all of the spindle's maximum (`$30`), shown short (6k / 12k / 24k), with the controller's min–max range (`$30` / `$31`) above them.
+* **Start** (green) and **Stop** (red) send M3/M4 with the target RPM, or M5. While the spindle runs, Start stays pressed in and reads **Running**; it pops back out if the spindle is stopped any other way.
+* Bottom bar: Home | Overrides.
+
+<br clear="right">
+
+### Files *(was SD Card)*
+
+<p>
+<img src="new_ui/neumorphic/11-files.png" alt="Files screen" width="200">
+<img src="new_ui/neumorphic/12-files-selected.png" alt="Files screen with a file selected" width="200">
+</p>
+
+Browse and run G-code files live from the controller's SD card.
+* The strip at the top shows the folder you're in and the page (**1/2**, with a trailing `+` if the folder has more than 100 entries). **Turn the dial** or **tap the page number** to page through the list, five rows at a time.
+* **Folders** have a folder icon and a chevron; tap to open. **Up a folder** at the top of a subfolder walks back up. Only the folder you're in is loaded.
+* **Tap a file** to select it; the bottom bar changes to **Back | Load | Run**. Tap it again to deselect. **Load** queues it and goes to Status, where the green button starts it; **Run** starts it straight away. The full path is sent, so files in subfolders run correctly.
+* **Refresh** re-lists the folder you're in.
+
+### Macros
+
+<img src="new_ui/neumorphic/13-macros.png" alt="Macros screen" width="200" align="right">
+
+The same list style as Files, holding up to 100 macros. Reads macros directly from the FluidNC controller by JSON streaming over the active transport. Macros must be defined in **`macrocfg.json`** (WebUI v2 format); the WebUI v3 `preferences.json` format is **no longer supported** as of v2.2.0. The list loads on first entry and is cached — subsequent visits are instant; **Refresh** fetches a fresh copy. Tap a macro, then **Run macro**; it sends the command and goes to Status.
+
+<br clear="right">
+
+### FluidNC
+
+<img src="new_ui/neumorphic/14-fluidnc.png" alt="FluidNC screen" width="200" align="right">
+
+* Pendant firmware version, controller firmware version, IP address, network, free heap and link status. Values the controller hasn't reported yet show `---`.
+* The network row follows what the controller reports: a WiFi SSID on a wireless controller, or **Wired Ethernet** (amber **Ethernet, no link** if the cable is out) on a wired one such as the Greyhound. Works over UART and ESP-NOW, on current FluidNC releases as well as newer ones: where `$I` reports no Ethernet (anything up to v4.1.1), the pendant reads `$network/type` and `$Ethernet/Status` instead.
+* **Connection** opens the Connection screen.
+* **Display** — tap it, or turn the dial, to turn the display 180°; saved across restarts.
+* Reach it from Status (bottom bar). Bottom bar: Home | Status.
+
+<br clear="right">
+
+### Probing
+
+<p>
+<img src="new_ui/neumorphic/18-probe-hub.png" alt="Probe hub" width="200">
+<img src="new_ui/neumorphic/19-probe-z.png" alt="Z Surface probe" width="200">
+<img src="new_ui/neumorphic/20-probe-corner.png" alt="XYZ Corner probe with the corner picker" width="200">
+</p>
+<p>
+<img src="new_ui/neumorphic/21-probe-bore.png" alt="Bore probe" width="200">
+<img src="new_ui/neumorphic/22-probe-boss.png" alt="Boss probe" width="200">
+<img src="new_ui/neumorphic/23-probe-confirm.png" alt="Probe confirmation dialog" width="200">
+</p>
+<p>
+<img src="new_ui/neumorphic/24-probe-setup-3d.png" alt="3D probe setup" width="200">
+<img src="new_ui/neumorphic/25-plate-setup.png" alt="XYZ touch plate setup" width="200">
+</p>
+
+* The **Probe** hub picks the probe type — **Z Plate**, **XYZ** touch plate or **3D** touch probe — and the routines on offer change to match. **Shared settings** (probe rate, seek rate, retract, max Z travel, all in mm) apply to every routine: tap one, then turn the dial. The default seek rate is 500 mm/min.
 * Routines:
-  * **Z Surface** — probes Z and zeroes it (all probe types)
-  * **XYZ Corner** — finds a workpiece corner and sets X0/Y0/Z0; cycle which corner (Bot-Left … Top-Right) (XYZ Plate and 3D Probe)
-  * **Bore** — finds the centre of an inside circle and sets X0/Y0 (place the tip inside at any depth — there's no Z motion; set Z separately with Z Surface) (3D Probe)
-  * **Boss** — finds the centre of a raised feature; touches the flat top for Z0 and sets X0/Y0/Z0 (3D Probe). **Tap the diagram** to switch between **circular** boss (one nominal diameter) and **rectangular/square** boss (independent X size / Y size); the diagram and field labels change to show the active mode
-* Probe G-code is **generated on the pendant** (`G38.2` straight-probe moves) — no probe macro files need to live on the controller. Every wall/surface is reached with a **crash-safe two-pass move** (a fast seek then a slow re-probe), so a wrong nominal size can't drive the tip into a wall; the trigger offset is computed automatically from the configured plate thickness or 3D-probe ball radius, so a routine zeroes correctly whichever probe you use. Each axis also **returns to its exact `G38.2` trigger point** (`#5061`/`#5062`/`#5063`) before its zero is written, so the machine's deceleration overshoot — which leaves it resting slightly past where the probe actually fired — never enters the work offset; FluidNC's `hard_stop` is **not** required for accurate zeros
-* Each routine screen shows a **sequence list** and a **diagram** of the probe move, and a **Work Area** button to pick the coordinate system the probe will zero — tap it to cycle **G54–G57** right from the routine screen
-* **Configure** opens a per-type setup screen — for the 3D probe: ball diameter plus an optional deflection correction (added to the ball radius; default 0) with an on-pendant **Deflection Cal** routine that measures it against a known gauge (e.g. the 2″ face of a 1-2-3 block); for a touch plate: plate dimensions (thickness, plus width and XY offsets for the XYZ plate)
-* Shared settings (probe rate, seek rate, retract distance, max Z travel) apply to every routine; the default seek rate is 500 mm/min
-* **For more info** — see the [Probing Guide](Probing.md) for a detailed, per-screen breakdown of every probing screen, what each option does, and how each routine moves the machine
-
-**Feeds & Speeds**
-* Feed and spindle override preset buttons (50% / 75% / 100% / 125% / 150%)
-* **Dial mode** — tap the live percentage field to activate dial mode (the field highlights, matching the Probe screens' tap-to-edit style); the jog dial then adjusts that override in 10% increments; only one (feed or spindle) can be active at a time; tapping a preset or the other field deactivates it
-* Overrides ramp to the target with **paced coarse+fine steps** anchored off the current value (one realtime byte every ~60 ms) rather than a burst — gentle on a Modbus VFD and safe to use during a running job
-
-**Spindle Control**
-* Direction selection (Forward / Reverse → M3 / M4)
-* Live RPM display panel — left column shows current spindle RPM reported by the controller; right column shows the **Target RPM** (the speed that will be sent on Start), highlighted in green
-* RPM presets at 25%, 50% and 100% of the controller's maximum RPM (read live from `$30`); preset labels shown in short format (e.g. 6k, 12k, 24k)
-* Minimum and maximum RPM values displayed, read directly from the controller (`$30` / `$31`)
-* **Dial mode** — tap the "Dial" field (same tap-to-edit style as the Probe screens; highlights while active) to set Target RPM with the encoder; steps in 100 RPM increments for spindles ≤ 10 000 RPM, or 1 000 RPM increments for larger spindles; clamped to the controller's valid range
-* Start / Stop buttons send M3/M4/M5 with the Target RPM
-
-**Macros** — paged with the jog dial and the same footer as the SD Card screen, holding up to 100 macros. Reads macros directly from the FluidNC controller by JSON streaming over the active transport. Macros must be defined in **`macrocfg.json`** (WebUI v2 format); the WebUI v3 `preferences.json` format is **no longer supported** as of v2.2.0. List loads on first entry and is cached — subsequent visits are instant. Refresh button fetches a fresh copy from the controller. Scroll and tap-to-confirm navigation; Run sends the command and navigates to the Status screen.
-
-**SD Card** — browse and run G-code files live from the controller's SD card. **Folders are supported**: they're listed first in cyan with a trailing `/`, tapping one opens it, and a `..` row at the top of every subfolder walks back up. Only the folder you're in is loaded, and each folder can hold up to **100 entries** (more than that and the page readout shows a trailing `+`). **Turn the jog dial to page through the list** — one detent per screen of five rows, clamped at both ends; tapping the **JOG** hint or the **PAGE** readout in the footer does the same thing, so the list is fully reachable by touch alone. Refresh re-lists the folder you're in. Tap a file to arm it (Load / Run buttons appear), then Load queues the file and navigates to the Status screen while Run sends the command immediately — either way the full path is sent, so files in subfolders run correctly.
-
-**FluidNC** — shows live info in two panels: pendant firmware (FluidDial-CYD version), FluidNC controller firmware version, controller IP and network, free heap, connection status, and display rotation. Jog dial rotates the display 180°; rotation is saved across restarts. The network row follows what the controller reports: a WiFi SSID on a wireless controller, or **Wired Ethernet** (amber **Ethernet (no link)** if the cable is out) on a wired one such as the Greyhound. Works whether the pendant is connected over UART or ESP-NOW, and on current FluidNC releases as well as newer ones: where `$I` reports no Ethernet (anything up to v4.1.1), the pendant reads `$network/type` and `$Ethernet/Status` instead. Tap the **CONNECTION** panel to open the Connection screen (transport, pairing, machines). Bottom row has two navigation buttons — Main Menu and Status.
+  * **Z Surface** — probes Z and zeroes it (all probe types).
+  * **XYZ Corner** — finds a workpiece corner and sets X0/Y0/Z0 (XYZ plate and 3D probe). Pick the corner on the **2×2 picker** (TL TR / BL BR, laid out like the corners themselves); the diagram follows.
+  * **Bore** — finds the centre of an inside circle and sets X0/Y0 (place the tip inside at any depth — there's no Z motion; set Z separately with Z Surface) (3D probe).
+  * **Boss** — finds the centre of a raised feature; touches the flat top for Z0 and sets X0/Y0/Z0 (3D probe). Choose **round** (one diameter) or **rectangular** (X size / Y size) with the shape picker.
+* Every routine screen shows the live work position, the **sequence** it will run, a **diagram** of the move, its settings, and a **result card** naming what it sets and in which coordinate system — **tap the card to cycle G54–G57**. **Probe** opens a confirmation naming the routine and the coordinate system before anything moves.
+* Probe G-code is **generated on the pendant** (`G38.2` straight-probe moves) — no probe macro files need to live on the controller. Every wall/surface is reached with a **crash-safe two-pass move** (a fast seek then a slow re-probe), so a wrong nominal size can't drive the tip into a wall; the trigger offset is computed automatically from the configured plate thickness or 3D-probe ball radius, so a routine zeroes correctly whichever probe you use. Each axis also **returns to its exact `G38.2` trigger point** (`#5061`/`#5062`/`#5063`) before its zero is written, so the machine's deceleration overshoot — which leaves it resting slightly past where the probe actually fired — never enters the work offset; FluidNC's `hard_stop` is **not** required for accurate zeros.
+* **Configure** (hub bottom bar) opens the setup for the selected type. For the 3D probe: ball diameter plus an optional deflection correction (added to the ball radius; default 0), and an on-pendant **Calibrate** routine that measures it against a known gauge (e.g. the 2″ face of a 1-2-3 block) — it asks before moving, shows progress, then offers to apply the measured value. For a touch plate: thickness, plus width and X/Y wall offsets for the XYZ plate. **Save** stores the settings; **Back** leaves without saving.
+* **For more info** — see the [Probing Guide](Probing.md) for how each routine moves the machine. (Its screen pictures show the previous UI; the routines themselves are unchanged.)
 
 ---
 
 ## 🔋 Battery Status (capacitive CYD only)
 
-On capacitive-screen CYDs a small battery icon appears in the top-right corner of every screen title bar when a LiPo battery is connected to the CYD's 3.3 V rail (via GPIO 39 voltage divider):
+On capacitive-screen CYDs a small battery icon appears in the header of every screen, beside the state chip, when a LiPo battery is connected to the CYD's 3.3 V rail (via GPIO 39 voltage divider) and the pendant is running wireless:
 
-* **Icon colour** — green above 50 %, orange 20–50 %, red below 20 %
-* **Charging indicator** — a yellow lightning-bolt overlay appears on the battery icon while charging. Charging is inferred from the battery-voltage trend (rising/held-high ⇒ on charger), so it reacts within ~30 s of plugging in. A short post-boot settling window suppresses it for the first couple of minutes after power-up, so the normal boot-load voltage recovery isn't mistaken for charging
+* **Fill colour** — grey above 50 %, amber 20–50 %, red below 20 %
+* **Charging indicator** — an amber lightning bolt appears on the battery icon while charging. Charging is inferred from the battery-voltage trend (rising/held-high ⇒ on charger), so it reacts within ~30 s of plugging in. A short post-boot settling window suppresses it for the first couple of minutes after power-up, so the normal boot-load voltage recovery isn't mistaken for charging
 * **Update rate** — battery level refreshes every 5 seconds; charging status every 3 seconds (cheap ADC read)
 * **Screen sleep** — to save power on battery, the display backlight switches off after **15 minutes** with the CNC Idle (or stuck "Connecting", eg your CNC is powered down and pendant is charging); **a touch anywhere wakes it** back to the screen you left, without sending any command to the controller. This is backlight-off only — the pendant stays connected and running. Wired (UART) pendants don't sleep
-* The icon is hidden on resistive CYDs or when no battery hardware is detected
+* The icon is hidden on resistive CYDs, on a wired (UART) pendant, or when no battery hardware is detected
 
 No wiring changes are needed on CYD boards that already have the battery circuit populated. Battery monitoring is built into the shipping firmware — no opt-in required.
 
@@ -122,6 +235,12 @@ No wiring changes are needed on CYD boards that already have the battery circuit
 
 > **v2.2.0 removed the WiFi transport.** It proved unreliable in practice — the CYD's small antenna, plus FluidNC serving its WebUI and the pendant WebSocket on the same port 80. It is replaced by **ESP-NOW**, a direct encrypted peer-to-peer radio link with no access point, DHCP or TCP in the path. **If you need WiFi, stay on [v2.1.11](https://github.com/dJOS1475/FluidDial-CYD/releases/tag/v2.1.11).**
 
+<p>
+<img src="new_ui/neumorphic/15-connection.png" alt="Connection screen" width="200">
+<img src="new_ui/neumorphic/16-machines.png" alt="Machines screen" width="200">
+<img src="new_ui/neumorphic/17-pairing.png" alt="Pairing screen" width="200">
+</p>
+
 The pendant offers two transports, chosen on the **Connection** screen:
 
 | Transport | Use for |
@@ -129,7 +248,7 @@ The pendant offers two transports, chosen on the **Connection** screen:
 | **UART** (default) | wired pendants — unchanged, still the most reliable option |
 | **ESP-NOW** | battery / untethered pendants |
 
-UART is the default on a fresh flash, so a new pendant never starts a radio unprompted. The choice is stored in NVS and survives firmware updates. Changing it reboots the pendant after a short countdown — the transport is only selected at boot.
+UART is the default on a fresh flash, so a new pendant never starts a radio unprompted. The choice is stored in NVS and survives firmware updates. Changing it reboots the pendant after a 5-second countdown — the transport is only selected at boot. **Tapping back to the transport that's running cancels the reboot.**
 
 ### Requirements
 
@@ -139,15 +258,15 @@ UART is the default on a fresh flash, so a new pendant never starts a radio unpr
 
 The pairing action happens **on the controller**, not the pendant:
 
-1. On the pendant: **Main Menu → FluidNC → CONNECTION**, choose **ESP-NOW**. The pendant shows a 5-second countdown and reboots itself to apply the change (tapping the other transport during the countdown cancels it by re-selecting).
-2. On the Connection screen tap **Pair New** (it shows "Not paired" until a machine is added).
-3. On the controller, run **`$espnow/pair`** in a FluidNC console — or use **WebUI → Settings → ESP-NOW → Pair Pendant**.
+1. On the pendant: **Main Menu → Status → FluidNC → Connection**, choose **ESP-NOW**. The pendant counts down 5 seconds and reboots itself to apply the change.
+2. On the Connection screen tap **Pair** (the link card says "Not paired" until a machine is added).
+3. On the controller, run **`$espnow/pair`** in a FluidNC console — or use **WebUI → Settings → ESP-NOW → Pair Pendant**. The pairing screen ticks off the steps and gives up after 90 seconds if nothing answers, with Retry / Cancel.
 4. The two exchange P-256 ECDH keys and derive a unique key for that pair. The screen shows **Paired** with the machine name, MAC and channel.
-5. Tap **Use This Machine**.
+5. Tap **Use this machine**.
 
 ### Multiple machines
 
-Up to **5 controllers** can be paired. The **Machines** screen (Connection → Machines) lists them with signal strength and an ACTIVE marker — tap a row to switch machines, or **Forget** to remove one (with confirmation). FluidNC keeps its own list of paired pendants, manageable from its WebUI or with `$espnow/list` and `$espnow/unpair`.
+Up to **5 controllers** can be paired. The **Machines** screen (Connection → Machines) lists them; the active one is pressed in and shows its signal and **Active** (or **Offline**). Tap a row to switch machines, or **Forget** to remove one (it asks first). FluidNC keeps its own list of paired pendants, manageable from its WebUI or with `$espnow/list` and `$espnow/unpair`.
 
 ### Feature parity with UART
 
@@ -157,7 +276,7 @@ Macros use the `$File/SendJSON` chain on both transports and must live in **`mac
 
 ### Signal strength and status
 
-A four-bar signal icon sits in the top-left of every title bar when a wireless transport is active, coloured by link quality. The **Connection** screen shows live link state, machine name, peer MAC + channel, and RSSI in dBm.
+On a wireless pendant four signal bars sit in the header of every screen, beside the battery and the state chip. The **Connection** screen shows live link state, machine name, peer MAC, signal and RSSI in dBm, the channel, and receive counters (**RX** bytes; **Lost** and **Drop**, which both read 0 on a healthy link).
 
 ### Upgrading from v2.1.x
 
@@ -174,9 +293,22 @@ The only supported build target is **`cyd_new_ui_combined`** — a single binary
 ```
 pio run -e cyd_new_ui_combined
 pio run -e cyd_new_ui_combined -t upload
+pio run -e cyd_new_ui_combined -t uploadfs   # the boot logo and images in data/
 ```
 
+The boot logo lives on the pendant's filesystem (LittleFS), so after changing anything in `data/` also run **Upload Filesystem Image** (`-t uploadfs`). It replaces the whole filesystem with the contents of `data/`.
+
 Other PlatformIO environments in `platformio.ini` (`cyd_new_ui`, `cyd_base`, `cyd_resistive`, `cyd_nodebug`, `cyd_buttons`, `cyddial`, `m5dial`, `windows`) are retained as historical / development references and are **not** maintained for end-user use. Build them at your own risk.
+
+### Simulator
+
+`simulator/` runs every screen in a browser at the panel's real resolution and colours, with touch, the jog dial and live machine state. It is the design spec for the firmware screens.
+
+```
+python simulator/dev_server.py 8777      # then open http://localhost:8777
+```
+
+It reloads on every file change and keeps the current screen. The bench panel on the right drives machine state (status, positions, link, axes, units, alarms). All the pictures on this page were taken from it.
 
 FluidNC Discord Topic: https://discord.com/channels/780079161460916227/1453176703009423514
 
@@ -189,16 +321,15 @@ A huge thank you to the following people who have supported this project:
 | simrim1 | Discord |
 | Janusz  | Discord |
 | karlpe  | GitHub  |
- 
+
 ---
 
 [![Donate](https://img.shields.io/badge/Donate-PayPal-blue?logo=paypal)](https://paypal.me/derekjosborn)
 
-FluidDial-CYD Firmware in Action connected to my CNC Machine Simulator: 
+FluidDial-CYD Firmware in Action connected to my CNC Machine Simulator:
 
-FluidDial-CYD v1.0.0: 
+FluidDial-CYD v1.0.0:
 [![Watch the video](https://img.youtube.com/vi/d5PogiUiiaw/maxresdefault.jpg)](https://youtu.be/d5PogiUiiaw)
 
-FluidDial-CYD v2.1.7: 
+FluidDial-CYD v2.1.7:
 [![Watch the video](https://img.youtube.com/vi/rT5MI35Bp68/maxresdefault.jpg)](https://youtu.be/rT5MI35Bp68)
-
