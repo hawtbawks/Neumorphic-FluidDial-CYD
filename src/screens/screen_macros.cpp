@@ -1,12 +1,38 @@
+/* screen_macros.cpp — neumorphic layout (spec: simulator/js/screens/macros.js)
+ *   crumb strip  macro source + page readout;  list well  5 macros
+ *   tap a macro to select it, then Run macro in the nav bar (Back cancels)
+ */
 #include "pendant_shared.h"
+#include "neu_ui.h"
 #include "screen_macros.h"
 
-// Sprite covers the file-list area: x=5..234, y=40..239 (230 x 200 px).
-// Rendering into it and pushing atomically prevents the fillScreen flicker that
-// would otherwise occur on every DRO STATE_UPDATE (~200 ms).
+enum { NAV_ID_REFRESH = NAV_ID_FIRST, NAV_ID_CANCEL, NAV_ID_RUN };
 
-// Forward declaration for the dirty-state tracker (defined below).
-static void invalidateMacrosRender();
+// Change key: everything the crumb and the list show.  valid = false forces a paint.
+struct MacroKey {
+    bool loading, loadFailed, pendingRun, connected;
+    int  count, scrollOffset, selected;
+};
+static MacroKey s_key;
+static bool     s_keyValid = false;
+
+static int macrosNav(NeuNavItem* items) {
+    if (pendantMacros.pendingRun) {
+        items[0] = { NAV_ID_CANCEL, "", ICON_BACK, 40 };
+        items[1] = { NAV_ID_RUN, "Run macro", ICON_PLAY, 0, false, false, false, NEU_RUN };
+    } else {
+        items[0] = NAV_HOME;
+        items[1] = { NAV_ID_REFRESH, "Refresh", ICON_REFRESH };
+    }
+    return 2;
+}
+
+// Selecting or deselecting a macro changes only the list and the nav bar.
+static void macrosRepaintSelection() {
+    updateMacrosFileList();
+    NeuNavItem nav[2];
+    neuNavReplace(nav, macrosNav(nav));
+}
 
 void enterMacros() {
     releasePanelSprites();
@@ -14,7 +40,7 @@ void enterMacros() {
     pendantMacros.scrollOffset = 0;
     pendantMacros.selected     = -1;
     pendantMacros.pendingRun   = false;
-    invalidateMacrosRender();   // force the first paint after entry
+    s_keyValid = false;
 
     if (pendantMacros.cacheValid) {
         // Cached list is still good — show it immediately without a fetch.
@@ -27,19 +53,13 @@ void enterMacros() {
         pendantMacros.count      = 0;
         if (pendantConnected) requestMacros();
     }
-
-    // Flicker-free list sprite, now 8-bit (~46 KB, was ~92 KB) so it allocates
-    // far more often; direct-draw fallback when heap is tight.
-    allocPanelSprite(spriteFileDisplay, 230, 200, 60000);
 }
 
 void exitMacros() {
-    spriteFileDisplay.deleteSprite();
+    releasePanelSprites();
 }
 
-// Re-fetch the macro list from the controller without re-allocating sprites.
-// Called by the Refresh button — enterMacros() would needlessly delete and
-// re-create the file-list sprite on every refresh.
+// Re-fetch the macro list from the controller (Refresh button).
 static void refreshMacros() {
     pendantMacros.cacheValid   = false;  // force a fresh UART fetch
     pendantMacros.scrollOffset = 0;
@@ -47,206 +67,106 @@ static void refreshMacros() {
     pendantMacros.pendingRun   = false;
     pendantMacros.loading      = true;
     pendantMacros.count        = 0;
-    invalidateMacrosRender();   // force repaint into the loading state
+    s_keyValid = false;
     if (pendantConnected) requestMacros();
 }
-
-// Truncate macro name to fit one button-width line at textSize 1 (~36 chars)
-static String macroLabel(int displayIndex) {
-    String label = pendantMacros.content[displayIndex];
-    if (label.length() > 36) label = label.substring(0, 33) + "...";
-    return label;
-}
-
-static void drawMacrosFooter(bool force = false);
-void updateMacrosFileList();
 
 // Dial — one detent pages the macro list by one screen, clamped at both ends.
 void handleMacrosDial(int delta) {
     int next = listPageStep(delta, pendantMacros.count, pendantMacros.scrollOffset);
     if (next < 0) return;
     pendantMacros.scrollOffset = next;
-    updateMacrosFileList();   // refreshes the footer too, via its own dirty check
+    updateMacrosFileList();
 }
 
-// Snapshot of last-rendered state.  See screen_sd_card.cpp for rationale —
-// in direct-draw mode the 100 ms tick would otherwise flicker; we skip the
-// paint when nothing visible has changed.
-struct MacrosRenderState {
-    bool valid;
-    bool connected;
-    bool loading;
-    bool loadFailed;
-    bool pendingRun;
-    int  count;
-    int  scrollOffset;
-    int  selected;
-};
-static MacrosRenderState _lastMacrosRender = {};
+static const char* s_msg1;
+static const char* s_msg2;
+static uint16_t    s_msgColor;
 
-static void invalidateMacrosRender() { _lastMacrosRender.valid = false; }
+static void drawMessageBand(int) { neuListMessage(s_msg1, s_msg2, s_msgColor); }
 
-// Renders the dynamic file-list area.  Uses the sprite for flicker-free
-// updates when it's been allocated; falls back to drawing directly into the
-// display otherwise.  The area is ALWAYS painted — bailing out silently
-// (the previous behaviour) made the screen look blank on WiFi-enabled
-// builds where the sprite couldn't allocate.
+static void drawMacroBand(int i) {
+    const int idx = i + pendantMacros.scrollOffset;
+    if (idx >= pendantMacros.count) return;
+    neuListRow(i, pendantMacros.content[idx], NEU_ROW_MACRO,
+               pendantMacros.pendingRun && idx == pendantMacros.selected);
+}
+
 void updateMacrosFileList() {
     if (currentPendantScreen != PSCREEN_MACROS) return;
 
-    // UI safety deadline: the HTTP fetch task always delivers a terminal
-    // onFilesList()/onError() callback, but if it ever hangs (or its task
-    // dies), this guarantees "Loading…" can't spin forever.  35 s comfortably
-    // exceeds the worst-case retry budget in fetch_macros_http_task
-    // (3 tries × 2 files × 5 s ≈ 30 s).
+    // UI safety deadline: the fetch always delivers a terminal onFilesList()/
+    // onError() callback, but if it ever hangs this guarantees "Loading…" can't
+    // spin forever.  35 s comfortably exceeds the worst-case retry budget.
     if (pendantMacros.loading && pendantMacros.loadStartMs != 0 &&
         (millis() - pendantMacros.loadStartMs) > 35000) {
         pendantMacros.loading    = false;
         pendantMacros.loadFailed = true;
     }
 
-    // Footer first, with its own dirty check: it lives outside the list sprite and
-    // must track count changes (a macro list arriving) even when the list area
-    // itself short-circuits below.
-    drawMacrosFooter();
+    MacroKey k;
+    memset(&k, 0, sizeof(k));
+    k.loading      = pendantMacros.loading;
+    k.loadFailed   = pendantMacros.loadFailed;
+    k.pendingRun   = pendantMacros.pendingRun;
+    k.connected    = pendantConnected;
+    k.count        = pendantMacros.count;
+    k.scrollOffset = pendantMacros.scrollOffset;
+    k.selected     = pendantMacros.selected;
+    if (s_keyValid && memcmp(&k, &s_key, sizeof(k)) == 0) return;
+    s_key      = k;
+    s_keyValid = true;
 
-    MacrosRenderState cur = {
-        /*valid*/        true,
-        /*connected*/    pendantConnected,
-        /*loading*/      pendantMacros.loading,
-        /*loadFailed*/   pendantMacros.loadFailed,
-        /*pendingRun*/   pendantMacros.pendingRun,
-        /*count*/        pendantMacros.count,
-        /*scrollOffset*/ pendantMacros.scrollOffset,
-        /*selected*/     pendantMacros.selected,
-    };
-    if (_lastMacrosRender.valid &&
-        _lastMacrosRender.connected    == cur.connected &&
-        _lastMacrosRender.loading      == cur.loading &&
-        _lastMacrosRender.loadFailed   == cur.loadFailed &&
-        _lastMacrosRender.pendingRun   == cur.pendingRun &&
-        _lastMacrosRender.count        == cur.count &&
-        _lastMacrosRender.scrollOffset == cur.scrollOffset &&
-        _lastMacrosRender.selected     == cur.selected) {
+    const int pages = k.count == 0 ? 0 : listPageCount(k.count);
+    neuPanelBegin(13, NEU_LIST_CRUMB_Y + 3, 215, 21);
+    neuListCrumb(ICON_MACRO, "macrocfg.json", listPageIndex(k.scrollOffset) + 1, pages, false);
+    neuPanelEnd();
+
+    s_msg2     = nullptr;
+    s_msgColor = NEU_TEXT2;
+    if (k.loading) {
+        s_msg1 = pendantConnected ? "Loading..." : "Not connected";
+    } else if (k.loadFailed) {
+        s_msg1     = "Couldn't load macros";
+        s_msg2     = "Tap Refresh to try again";
+        s_msgColor = NEU_HOLD;
+    } else if (k.count == 0) {
+        s_msg1 = "No macros found";
+        s_msg2 = "Add them in FluidNC preferences";
+    } else {
+        neuListPaint(drawMacroBand);
         return;
     }
-    _lastMacrosRender = cur;
-
-    const bool hasSprite = spriteFileDisplay.getBuffer() != nullptr;
-    LovyanGFX* g = hasSprite ? (LovyanGFX*)&spriteFileDisplay
-                             : (LovyanGFX*)&display;
-    // Sprite is pushed at (5, 40); direct-draw uses absolute screen coords.
-    const int ox = hasSprite ? 0 : 5;
-    const int oy = hasSprite ? 0 : 40;
-
-    if (hasSprite) {
-        spriteFileDisplay.fillSprite(COLOR_BACKGROUND);
-    } else {
-        display.fillRect(5, 40, 230, 200, COLOR_BACKGROUND);
-    }
-
-    drawListCrumb(g, ox, oy, "macrocfg.json");
-
-    if (pendantMacros.loading) {
-        g->setTextColor(COLOR_GRAY_TEXT);
-        g->setTextSize(2);
-        g->setCursor(ox + 45, oy + 100);
-        g->print(pendantConnected ? "Loading..." : "Not connected.");
-    } else if (pendantMacros.loadFailed) {
-        g->setTextColor(COLOR_ORANGE);
-        g->setTextSize(1);
-        g->setCursor(ox + 15, oy + 90);
-        g->print("Couldn't load macros.");
-        g->setTextColor(COLOR_GRAY_TEXT);
-        g->setCursor(ox + 15, oy + 108);
-        g->print("Tap Refresh to try again.");
-    } else if (pendantMacros.count == 0) {
-        g->setTextColor(COLOR_GRAY_TEXT);
-        g->setTextSize(1);
-        g->setCursor(ox + 15, oy + 90);
-        g->print("No macros found.");
-        g->setCursor(ox + 15, oy + 108);
-        g->print("Add macros in FluidNC preferences.");
-    } else {
-        for (int i = 0; i < LIST_ROWS && i < pendantMacros.count; i++) {
-            int displayIndex = i + pendantMacros.scrollOffset;
-            if (displayIndex >= pendantMacros.count) break;
-
-            uint16_t bg;
-            if (displayIndex == pendantMacros.selected && pendantMacros.pendingRun) {
-                bg = COLOR_DARK_GREEN;
-            } else if (displayIndex == pendantMacros.selected) {
-                bg = COLOR_BUTTON_ACTIVE;
-            } else {
-                bg = COLOR_BUTTON_GRAY;
-            }
-            int ry = oy + LIST_ROW_Y0 + i * LIST_ROW_PITCH;
-            g->fillRoundRect(ox, ry, 230, LIST_ROW_H, 8, bg);
-            g->setTextColor(COLOR_WHITE);
-            g->setTextSize(1);
-            g->setCursor(ox + 5, ry + 11);
-            g->print(macroLabel(displayIndex));
-        }
-    }
-
-    if (hasSprite) spriteFileDisplay.pushSprite(5, 40);
-    // Receive-path counters, drawn last so they sit on top of the panel.
-}
-
-// See the note on drawSDFooter(): the footer sits below the list sprite, so it
-// needs its own dirty check to pick up a macro list arriving asynchronously.
-static void drawMacrosFooter(bool force) {
-    int  pages = listPageCount(pendantMacros.count);
-    int  page  = listPageIndex(pendantMacros.scrollOffset) + 1;
-    int  shown = pendantMacros.count == 0 ? 0 : pages;
-    bool live  = pendantMacros.count > 0 && pages > 1;
-
-    static bool valid = false;
-    static int  lastPage = -1, lastShown = -1;
-    static bool lastLive = false;
-    if (!force && valid && lastPage == page && lastShown == shown && lastLive == live) {
-        return;
-    }
-    drawListFooter(LIST_FOOTER_Y, page, shown, false, live);
-    valid = true;
-    lastPage = page; lastShown = shown; lastLive = live;
+    neuListPaint(drawMessageBand);
 }
 
 void drawMacrosScreen() {
-    display.fillScreen(COLOR_BACKGROUND);
-    drawTitle("MACROS");
-
-    // Full redraw — invalidate the dirty cache so the file-list area paints.
-    invalidateMacrosRender();
+    neuHeader("Macros");
+    neuListFrame();
+    s_keyValid = false;
     updateMacrosFileList();
-
-    // fillScreen() above wiped the footer — force it regardless of the dirty check.
-    drawMacrosFooter(true);
-
-    if (pendantMacros.pendingRun) {
-        drawButton(5,   282, 110, 36, "Cancel", COLOR_BUTTON_GRAY, COLOR_WHITE, 2);
-        drawButton(121, 282, 114, 36, "Run",    COLOR_DARK_GREEN,  COLOR_WHITE, 2);
-    } else {
-        drawButton(5, 282, 230, 36, "Main Menu", COLOR_BLUE, COLOR_WHITE, 2);
-    }
+    NeuNavItem nav[2];
+    neuNav(nav, macrosNav(nav));
 }
 
 void handleMacrosTouch(int x, int y) {
-    // File row taps
-    for (int i = 0; i < LIST_ROWS; i++) {
-        if (isTouchInBounds(x, y, 5, listRowHitY(i), 230, listRowHitH())) {
-            int displayIndex = i + pendantMacros.scrollOffset;
-            if (displayIndex < pendantMacros.count) {
-                pendantMacros.selected   = displayIndex;
+    const int row = neuListRowHit(x, y);
+    if (row >= 0) {
+        const int idx = row + pendantMacros.scrollOffset;
+        if (idx < pendantMacros.count) {
+            if (pendantMacros.pendingRun && pendantMacros.selected == idx) {
+                pendantMacros.pendingRun = false;   // tap again to deselect
+            } else {
+                pendantMacros.selected   = idx;
                 pendantMacros.pendingRun = true;
-                drawMacrosScreen();
             }
-            return;
+            macrosRepaintSelection();
         }
+        return;
     }
 
-    // JOG hint and PAGE readout both advance one page, wrapping back to the first.
-    if (listFooterPageTap(x, y, LIST_FOOTER_Y)) {
+    // The page readout in the crumb strip advances one page, wrapping to the first.
+    if (neuListPageHit(x, y)) {
         int next = listPageAdvanceWrap(pendantMacros.count, pendantMacros.scrollOffset);
         if (next >= 0) {
             pendantMacros.scrollOffset = next;
@@ -255,50 +175,39 @@ void handleMacrosTouch(int x, int y) {
         return;
     }
 
-    // Refresh — bust the cache and re-query all macros from controller
-    if (isTouchInBounds(x, y, rowBtnX(3, 2), LIST_FOOTER_Y, rowBtnWAt(3, 2), 36)) {
+    NeuNavItem nav[2];
+    switch (neuNavHit(nav, macrosNav(nav), x, y)) {
+    case NAV_ID_HOME:
+        currentPendantScreen = PSCREEN_MAIN_MENU;
+        break;
+    case NAV_ID_REFRESH:
         if (pendantConnected) {
             refreshMacros();
             drawMacrosScreen();
         }
-        return;
-    }
-
-    // Bottom row
-    if (pendantMacros.pendingRun) {
-        // Cancel
-        if (isTouchInBounds(x, y, 5, 282, 110, 36)) {
-            pendantMacros.pendingRun = false;
-            drawMacrosScreen();
-            return;
-        }
-        // Run — dispatch based on filename prefix set by FileParser
-        if (isTouchInBounds(x, y, 121, 282, 114, 36)) {
-            if (pendantConnected && pendantMacros.selected >= 0) {
-                String fn = pendantMacros.filename[pendantMacros.selected];
-                char   cmd[128];
-                if (fn.startsWith("/sd/")) {
-                    // SD file: strip /sd/ prefix for $SD/Run
-                    snprintf(cmd, sizeof(cmd), "$SD/Run=%s", fn.c_str() + 4);
-                } else if (fn.startsWith("/localfs/")) {
-                    // Local flash file
-                    snprintf(cmd, sizeof(cmd), "$Localfs/Run=%s", fn.c_str() + 9);
-                } else if (fn.startsWith("cmd:")) {
-                    // Raw UART command
-                    snprintf(cmd, sizeof(cmd), "%s", fn.c_str() + 4);
-                } else {
-                    // Unknown — send as-is
-                    snprintf(cmd, sizeof(cmd), "%s", fn.c_str());
-                }
-                send_line(cmd);
-                pendantMacros.pendingRun = false;
-                currentPendantScreen = PSCREEN_STATUS;
+        break;
+    case NAV_ID_CANCEL:
+        pendantMacros.pendingRun = false;
+        macrosRepaintSelection();
+        break;
+    case NAV_ID_RUN:
+        // Dispatch on the filename prefix set by FileParser
+        if (pendantConnected && pendantMacros.selected >= 0) {
+            const char* fn = pendantMacros.filename[pendantMacros.selected];
+            char        cmd[128];
+            if (strncmp(fn, "/sd/", 4) == 0) {
+                snprintf(cmd, sizeof(cmd), "$SD/Run=%s", fn + 4);        // SD file
+            } else if (strncmp(fn, "/localfs/", 9) == 0) {
+                snprintf(cmd, sizeof(cmd), "$Localfs/Run=%s", fn + 9);   // local flash file
+            } else if (strncmp(fn, "cmd:", 4) == 0) {
+                snprintf(cmd, sizeof(cmd), "%s", fn + 4);                // raw command
+            } else {
+                snprintf(cmd, sizeof(cmd), "%s", fn);                    // unknown — send as-is
             }
-            return;
+            send_line(cmd);
+            pendantMacros.pendingRun = false;
+            currentPendantScreen = PSCREEN_STATUS;
         }
-    } else {
-        if (isTouchInBounds(x, y, 5, 282, 230, 36)) {
-            currentPendantScreen = PSCREEN_MAIN_MENU;
-        }
+        break;
     }
 }
