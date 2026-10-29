@@ -1,13 +1,57 @@
+/* screen_status.cpp — neumorphic layout (spec: simulator/js/screens/status.js)
+ *   state card  y 38 h 50   LED + state word; progress % on the right while a job runs
+ *   job card    y 96 h 52   current / loaded file + progress bar
+ *   DRO         y 156       work + machine
+ *   feed/spindle fields y 232 h 40
+ *   nav         Home | FluidNC
+ */
 #include "pendant_shared.h"
+#include "neu_ui.h"
 #include "screen_status.h"
 
+enum { NAV_ID_FLUIDNC = NAV_ID_FIRST };
+static const NeuNavItem kNav[] = { NAV_HOME, { NAV_ID_FLUIDNC, "FluidNC", ICON_GEAR } };
+static const int        kNavN  = 2;
+
+// Everything the four panels show, copied under stateMutex once per update.
+struct StatusSnap {
+    char status[24];
+    char file[SD_PATH_MAX];
+    int  jobPercent;
+    int  feedRate;
+    int  spindleRPM;
+    char spindleDir[8];
+    bool inInches;
+};
+static bool statusSnapshot(StatusSnap& s) {
+    memset(&s, 0, sizeof(s));
+    if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(5)) != pdTRUE) return false;
+    strlcpy(s.status, pendantMachine.status.c_str(), sizeof(s.status));
+    strlcpy(s.file, pendantMachine.currentFile.c_str(), sizeof(s.file));
+    s.jobPercent = pendantMachine.jobPercent;
+    s.feedRate   = pendantMachine.feedRate;
+    s.spindleRPM = pendantMachine.spindleRPM;
+    strlcpy(s.spindleDir, pendantMachine.spindleDir.c_str(), sizeof(s.spindleDir));
+    s.inInches   = pendantMachine.inInches;
+    xSemaphoreGive(stateMutex);
+    return true;
+}
+
+// Change keys, one per panel.  valid = false forces the next update to paint.
+struct StateKey { char status[24]; bool connected, synced, job; int pct; };
+struct FileKey  { char file[SD_PATH_MAX]; char loaded[SD_PATH_MAX]; int pct; };
+struct FsKey    { int feed, rpm; char dir[8]; bool inch; };
+static StateKey   s_stateKey;
+static FileKey    s_fileKey;
+static FsKey      s_fsKey;
+static NeuDroSnap s_droKey;
+static bool       s_stateValid, s_fileValid, s_fsValid, s_droValid;
+
+static void invalidate() { s_stateValid = s_fileValid = s_fsValid = s_droValid = false; }
+
 void enterStatus() {
-    // The four status panels all render through the shared 16-bit scratch sprite
-    // (begin/endPanelSprite) — one buffer reused for every panel, grown to the
-    // largest and then held with no per-frame churn.  Holding four separate
-    // persistent buffers (~50 KB) failed on the WiFi build; the shared scratch
-    // keeps only ~one panel's RAM live.  Just clear any inherited buffer here.
     releasePanelSprites();
+    invalidate();
 }
 
 void exitStatus() {
@@ -15,275 +59,158 @@ void exitStatus() {
 }
 
 void drawStatusScreen() {
-    display.fillScreen(COLOR_BACKGROUND);
-    drawTitle("STATUS");
-
+    neuHeader("Status");
+    invalidate();
+    neuInset(10, 38, 220, 50, 12, 3);
+    neuInset(10, 96, 220, 52, 12, 3);
+    neuInset(10, 156, 220, NEU_DRO_H, 12, 3);
+    neuInset(10, 232, 106, 40, 8, 3);
+    neuInset(124, 232, 106, 40, 8, 3);
     updateStatusMachineStatus();
     updateStatusCurrentFile();
     updateStatusAxisPositions();
     updateStatusFeedSpindle();
-
-    drawButton(5, 280, 112, 40, "Main Menu", COLOR_BLUE, COLOR_WHITE, 2);
-    drawButton(123, 280, 112, 40, "FluidNC", COLOR_BLUE, COLOR_WHITE, 2);
+    neuNav(kNav, kNavN);
 }
 
 void updateStatusMachineStatus() {
     if (currentPendantScreen != PSCREEN_STATUS) return;
+    StatusSnap s;
+    if (!statusSnapshot(s)) return;   // lock busy: try again next tick
+    const bool job = s.file[0] != 0;
+    StateKey   k;
+    memset(&k, 0, sizeof(k));
+    strlcpy(k.status, s.status, sizeof(k.status));
+    k.connected = pendantConnected;
+    k.synced    = pendantSynced;
+    k.job       = job;
+    k.pct       = s.jobPercent;
+    if (s_stateValid && memcmp(&k, &s_stateKey, sizeof(k)) == 0) return;
+    s_stateKey   = k;
+    s_stateValid = true;
 
-    // Snapshot shared state under the lock FIRST.  Skip this frame if the lock
-    // is briefly unavailable rather than reading Strings unlocked (Core 0 may be
-    // mid-write, and a String realloc during the copy would corrupt the heap).
-    String statusStr;
-    String fileStr;
-    int    pct = 0;
-    if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(5)) != pdTRUE) return;
-    statusStr = pendantMachine.status;
-    fileStr   = pendantMachine.currentFile;
-    pct       = pendantMachine.jobPercent;
-    xSemaphoreGive(stateMutex);
-
-    bool jobRunning = fileStr.length() > 0;
-
-    int ox, oy;
-    LovyanGFX* g = beginPanelSprite(230, 50, ox, oy, 5, 40);
-    g->fillRect(ox, oy, 230, 50, COLOR_DARKER_BG);
-
-    if (!pendantSynced || statusStr == "N/C" || statusStr.length() == 0) {
-        // Two-phase power-up / reconnect indicator (matches the main menu):
-        //   "Connecting" — link not yet established
-        //   "Syncing"    — link up; fetching config + waiting for live state
-        const char* phase = pendantConnected ? "Syncing" : "Connecting";
-        g->setTextColor(COLOR_GRAY_TEXT);
-        g->setTextSize(1);
-        int16_t lw = g->textWidth("MACHINE STATUS");
-        g->setCursor(ox + 115 - lw / 2, oy + 5);
-        g->print("MACHINE STATUS");
-        g->setTextColor(COLOR_ORANGE);
-        g->setTextSize(3);
-        int16_t cw = g->textWidth(phase);
-        g->setCursor(ox + 115 - cw / 2, oy + 22);
-        g->print(phase);
-
-    } else if (statusStr.startsWith("Alarm")) {
-        String desc = alarmDescription(statusStr);
-        g->setTextColor(TFT_RED);
-        g->setTextSize(1);
-        int16_t dw = g->textWidth(desc.c_str());
-        g->setCursor(ox + 115 - dw / 2, oy + 5);
-        g->print(desc);
-        g->setTextSize(3);
-        int16_t sw = g->textWidth("ALARM");
-        g->setCursor(ox + 115 - sw / 2, oy + 22);
-        g->print("ALARM");
-
-    } else if (jobRunning) {
-        // Two-column layout
-        g->setTextColor(COLOR_GRAY_TEXT);
-        g->setTextSize(1);
-        g->setCursor(ox + 5, oy + 5);
-        g->print("MACHINE STATUS");
-        g->setTextColor(COLOR_CYAN);
-        g->setTextSize(3);
-        int16_t sw = g->textWidth(statusStr.c_str());
-        int16_t cx = 56 - sw / 2;
-        if (cx < 0) cx = 0;
-        g->setCursor(ox + cx, oy + 22);
-        g->print(statusStr);
-
-        g->drawLine(ox + 115, oy + 2, ox + 115, oy + 47, COLOR_BUTTON_GRAY);
-
-        String pctStr = String(pct) + "%";
-        g->setTextColor(COLOR_GRAY_TEXT);
-        g->setTextSize(1);
-        int16_t lw = g->textWidth("PROGRESS");
-        g->setCursor(ox + 174 - lw / 2, oy + 5);
-        g->print("PROGRESS");
-        g->setTextColor(COLOR_GREEN);
-        g->setTextSize(3);
-        int16_t pw = g->textWidth(pctStr.c_str());
-        g->setCursor(ox + 174 - pw / 2, oy + 22);
-        g->print(pctStr);
-
+    NeuChip chip;
+    neuChipState(chip);
+    neuPanelBegin(13, 41, 214, 44);
+    neuFillRect(13, 41, 214, 44, NEU_WELL);
+    if (strncmp(s.status, "Alarm", 5) == 0 && pendantSynced && pendantConnected) {
+        neuLed(28, 56, NEU_ALARM, 4);
+        neuText("Alarm", 42, 64, NEU_B12, NEU_ALARM);
+        neuSmall(alarmDescription(String(s.status)).c_str(), 22, 73, NEU_TEXT2);
     } else {
-        g->setTextColor(COLOR_GRAY_TEXT);
-        g->setTextSize(1);
-        int16_t lw = g->textWidth("MACHINE STATUS");
-        g->setCursor(ox + 115 - lw / 2, oy + 5);
-        g->print("MACHINE STATUS");
-        g->setTextColor(COLOR_CYAN);
-        g->setTextSize(3);
-        int16_t sw = g->textWidth(statusStr.c_str());
-        g->setCursor(ox + 115 - sw / 2, oy + 22);
-        g->print(statusStr);
+        char word[24];
+        if (strcmp(chip.label, "OFFLINE") == 0)   strlcpy(word, "Connecting", sizeof(word));
+        else if (strcmp(chip.label, "SYNC") == 0) strlcpy(word, "Syncing", sizeof(word));
+        else {
+            strlcpy(word, s.status, sizeof(word));
+            word[strcspn(word, ":")] = 0;
+        }
+        neuLed(28, 63, chip.color, 5);
+        neuText(neuFit(word, NEU_B18, job ? 120 : 180), 42, neuCapBase(38, 50, NEU_B18), NEU_B18, chip.color);
+        if (job) {
+            char pct[8];
+            snprintf(pct, sizeof(pct), "%d%%", s.jobPercent);
+            neuCaption("Progress", 218, 50, NEU_TEXT3, NEU_RIGHT);
+            neuText(pct, 218, 76, NEU_B12, NEU_TEXT, NEU_RIGHT);
+        }
     }
+    neuPanelEnd();
+}
 
-    endPanelSprite(230, 50, 5, 40);
+static const char* baseName(const char* path) {
+    const char* slash = strrchr(path, '/');
+    return slash ? slash + 1 : path;
+}
+
+// Trim a path from the LEFT so the file name survives.
+static void fitSmall(const char* s, int maxChars, char* out, size_t n) {
+    const int len = (int)strlen(s);
+    if (len <= maxChars) strlcpy(out, s, n);
+    else                 snprintf(out, n, "...%s", s + len - (maxChars - 3));
 }
 
 void updateStatusCurrentFile() {
     if (currentPendantScreen != PSCREEN_STATUS) return;
+    StatusSnap s;
+    if (!statusSnapshot(s)) return;
+    FileKey k;
+    memset(&k, 0, sizeof(k));
+    strlcpy(k.file, s.file, sizeof(k.file));
+    strlcpy(k.loaded, pendantSdCard.loadedFile.c_str(), sizeof(k.loaded));   // Core 1 owned
+    k.pct = s.jobPercent;
+    if (s_fileValid && memcmp(&k, &s_fileKey, sizeof(k)) == 0) return;
+    s_fileKey   = k;
+    s_fileValid = true;
 
-    String fileStr;
-    if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(5)) != pdTRUE) return;
-    fileStr = pendantMachine.currentFile;
-    xSemaphoreGive(stateMutex);
-
-    int ox, oy;
-    LovyanGFX* g = beginPanelSprite(230, 40, ox, oy, 5, 95);
-    g->fillRoundRect(ox, oy, 230, 40, 5, COLOR_DARKER_BG);
-
-    if (pendantSdCard.loadedFile.length() > 0 && fileStr.length() == 0) {
-        g->setTextColor(COLOR_GREEN);
-        g->setTextSize(1);
-        g->setCursor(ox + 5, oy + 5);
-        g->print("READY — press green to run");
-        g->setCursor(ox + 5, oy + 20);
-        // loadedFile is a full path now that files can live in subfolders, and
-        // the panel only fits ~37 chars at this size.  Trim from the LEFT so the
-        // filename itself always survives.
-        {
-            String f = pendantSdCard.loadedFile;
-            const int maxChars = 37;
-            if (f.length() > maxChars) f = "..." + f.substring(f.length() - (maxChars - 3));
-            g->print(f);
-        }
+    neuPanelBegin(13, 99, 214, 46);
+    neuFillRect(13, 99, 214, 46, NEU_WELL);
+    if (k.loaded[0] && !s.file[0]) {
+        char path[40];
+        fitSmall(k.loaded, 32, path, sizeof(path));
+        neuCaption("Ready", 22, 106, NEU_RUN);
+        neuCaption("Press green", 218, 106, NEU_TEXT3, NEU_RIGHT);
+        neuText(neuFit(baseName(k.loaded), NEU_B9, 196), 22, 128, NEU_B9, NEU_TEXT);
+        neuSmall(path, 22, 134, NEU_TEXT3);
+    } else if (s.file[0]) {
+        char pct[8];
+        snprintf(pct, sizeof(pct), "%d%%", s.jobPercent);
+        neuCaption("Job", 22, 106);
+        neuText(neuFit(baseName(s.file), NEU_B9, 150), 22, 128, NEU_B9, NEU_TEXT);
+        neuText(pct, 218, 128, NEU_B9, NEU_ACCENT, NEU_RIGHT);
+        neuProgressBar(22, 136, 196, s.jobPercent / 100.0f);
     } else {
-        g->setTextColor(COLOR_GRAY_TEXT);
-        g->setTextSize(1);
-        g->setCursor(ox + 5, oy + 5);
-        g->print("CURRENT FILE");
-        g->setTextColor(COLOR_CYAN);
-        g->setCursor(ox + 5, oy + 20);
-        g->print(fileStr);
+        neuCaption("Job", 22, 106);
+        neuText("No job running", 22, 131, NEU_S9, NEU_TEXT3);
     }
-
-    endPanelSprite(230, 40, 5, 95);
+    neuPanelEnd();
 }
 
 void updateStatusAxisPositions() {
     if (currentPendantScreen != PSCREEN_STATUS) return;
+    NeuDroSnap snap;
+    if (!neuDroSnapshot(snap)) return;
+    if (s_droValid && neuDroSame(snap, s_droKey)) return;
+    s_droKey   = snap;
+    s_droValid = true;
+    neuPanelBegin(14, 160, 212, 61);   // labels + values: everything neuDroLabels/Values fill
+    neuDroLabels(10, 156, snap);
+    neuDroValues(10, 156, snap);
+    neuPanelEnd();
+}
 
-    // Status shows MACHINE coordinates (mpos[]).
-    float positions[PENDANT_MAX_AXES];
-    int   numAxes;
-    bool  inInch;
-    if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(5)) != pdTRUE) return;
-    for (int i = 0; i < PENDANT_MAX_AXES; i++) positions[i] = pendantMachine.mpos[i];
-    numAxes = pendantMachine.numAxes;
-    inInch  = pendantMachine.inInches;
-    xSemaphoreGive(stateMutex);
-
-    int ox, oy;
-    LovyanGFX* g = beginPanelSprite(230, 65, ox, oy, 5, 140);
-
-    g->fillRoundRect(ox, oy, 230, 65, 5, COLOR_DARKER_BG);
-
-    g->setTextColor(COLOR_GRAY_TEXT);
-    g->setTextSize(1);
-    g->setCursor(ox + 5, oy + 5);
-    g->print("MACHINE POSITION");
-
-    // Unit hint, dim, top-right — drawn once rather than per-axis so it costs no
-    // column width.  Without it the panel gave no clue whether it was showing mm
-    // or inches, and the two differ by 25x.  Matches probeDrawPosPanel().
-    g->setTextColor(COLOR_GRAY_TEXT);
-    g->setCursor(ox + 212, oy + 5);
-    g->print(inInch ? "in" : "mm");
-
-    // Resolution must follow the unit: this used to print 1 decimal always, which
-    // in inch mode is 0.1" = 2.54 mm — far too coarse to read a position from.
-    // 0.1 mm is the right grain for an at-a-glance monitoring DRO, so inch gets
-    // 3dp (0.025 mm) to land at the same real-world resolution rather than a
-    // finer one.  Same pairing as probeDrawPosPanel().
-    // A long coordinate can still outrun a column (a >1 m machine homed to max,
-    // e.g. "X:-1234.56", or inch on the same machine), so drop a decimal until it
-    // fits rather than letting it run into the neighbouring axis.
-    // Two columns up to 4 axes; three once there are 5 or 6, so they still fit
-    // the panel's two rows instead of spilling past its bottom edge.
-    const int   nCols   = (numAxes > 4) ? 3 : 2;
-    const int   colW    = (nCols == 3) ? 74 : 112;
-    const int   prefDec = inInch ? 3 : 1;
-    char        posBuf[20];
-
-    // AXIS_NAMES / pendantMachine.mpos are sized PENDANT_MAX_AXES; numAxes is
-    // already clamped to that in onDROChange, so this loop cannot run off the end.
-    g->setTextColor(COLOR_ORANGE);
-    g->setTextSize(2);
-    for (int i = 0; i < numAxes; i++) {
-        int dec = prefDec;
-        snprintf(posBuf, sizeof(posBuf), "%s:%.*f", AXIS_NAMES[i], dec, positions[i]);
-        while (dec > 0 && g->textWidth(posBuf) > colW) {
-            --dec;
-            snprintf(posBuf, sizeof(posBuf), "%s:%.*f", AXIS_NAMES[i], dec, positions[i]);
-        }
-        // Right column starts at 118 (was 125): the extra decimal needs the width,
-        // e.g. "Y:-145.60" is 108 px and the old 105 px column would have clipped it.
-        g->setCursor(ox + 5 + (i % nCols) * ((230 - 5) / nCols),
-                     oy + 20 + (i / nCols) * 23);
-        g->print(posBuf);
-    }
-
-    endPanelSprite(230, 65, 5, 140);
+// Repaints a field's interior through the panel sprite; the focus-ring outline
+// (always off here) falls outside the panel and is clipped away.
+static void statusField(int x, const char* cap, const char* value, const char* unit) {
+    neuPanelBegin(x + 4, 236, 99, 33);
+    neuFieldValue(x, 232, 106, 40, cap, value, unit);
+    neuPanelEnd();
 }
 
 void updateStatusFeedSpindle() {
     if (currentPendantScreen != PSCREEN_STATUS) return;
+    StatusSnap s;
+    if (!statusSnapshot(s)) return;
+    FsKey k;
+    memset(&k, 0, sizeof(k));
+    k.feed = s.feedRate;
+    k.rpm  = s.spindleRPM;
+    strlcpy(k.dir, s.spindleDir, sizeof(k.dir));
+    k.inch = s.inInches;
+    if (s_fsValid && memcmp(&k, &s_fsKey, sizeof(k)) == 0) return;
+    s_fsKey   = k;
+    s_fsValid = true;
 
-    int feedRate, spindleRPM;
-    String spindleDir;
-    if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(5)) != pdTRUE) return;
-    feedRate   = pendantMachine.feedRate;
-    spindleRPM = pendantMachine.spindleRPM;
-    spindleDir = pendantMachine.spindleDir;
-    xSemaphoreGive(stateMutex);
-
-    int ox, oy;
-    LovyanGFX* g = beginPanelSprite(230, 65, ox, oy, 5, 210);
-
-    g->fillRect(ox, oy, 230, 65, COLOR_BACKGROUND);
-
-    // Feed Rate box
-    g->fillRoundRect(ox + 0, oy, 112, 65, 5, COLOR_DARKER_BG);
-    g->setTextColor(COLOR_GRAY_TEXT);
-    g->setTextSize(1);
-    g->setCursor(ox + 5, oy + 3);
-    g->print("FEED");
-    g->setTextColor(COLOR_ORANGE);
-    g->setTextSize(2);
-    g->setCursor(ox + 5, oy + 25);
-    g->print(feedRate);
-    g->setTextColor(COLOR_GRAY_TEXT);
-    g->setTextSize(1);
-    int16_t mmW = g->textWidth("mm/min");
-    g->setCursor(ox + 112 - 5 - mmW, oy + 50);
-    g->print("mm/min");
-
-    // Spindle box
-    g->fillRoundRect(ox + 118, oy, 112, 65, 5, COLOR_DARKER_BG);
-    g->setTextColor(COLOR_GRAY_TEXT);
-    g->setTextSize(1);
-    g->setCursor(ox + 123, oy + 3);
-    g->print("SPINDLE");
-    int16_t dirW = g->textWidth(spindleDir.c_str());
-    g->setCursor(ox + 230 - 5 - dirW, oy + 3);
-    g->print(spindleDir);
-    g->setTextColor(COLOR_GREEN);
-    g->setTextSize(2);
-    g->setCursor(ox + 123, oy + 25);
-    g->print(spindleRPM);
-    g->setTextColor(COLOR_GRAY_TEXT);
-    g->setTextSize(1);
-    int16_t rpmW = g->textWidth("RPM");
-    g->setCursor(ox + 230 - 5 - rpmW, oy + 50);
-    g->print("RPM");
-
-    endPanelSprite(230, 65, 5, 210);
+    char feed[12], rpm[12], cap[20];
+    snprintf(feed, sizeof(feed), "%d", s.feedRate);
+    snprintf(rpm, sizeof(rpm), "%d", s.spindleRPM);
+    snprintf(cap, sizeof(cap), "Spindle %s", s.spindleRPM > 0 ? s.spindleDir : "");
+    statusField(10, "Feed", feed, s.inInches ? "in/m" : "mm/m");
+    statusField(124, cap, rpm, "rpm");
 }
 
 void handleStatusTouch(int x, int y) {
-    if (isTouchInBounds(x, y, 5, 280, 112, 40)) {
-        currentPendantScreen = PSCREEN_MAIN_MENU;
-    } else if (isTouchInBounds(x, y, 123, 280, 112, 40)) {
-        currentPendantScreen = PSCREEN_FLUIDNC;
+    switch (neuNavHit(kNav, kNavN, x, y)) {
+    case NAV_ID_HOME:    currentPendantScreen = PSCREEN_MAIN_MENU; break;
+    case NAV_ID_FLUIDNC: currentPendantScreen = PSCREEN_FLUIDNC;   break;
     }
 }

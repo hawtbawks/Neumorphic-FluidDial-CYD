@@ -103,6 +103,10 @@ uint16_t neuStateColor(const char* status);
 // Copies pendantMachine.status under stateMutex.  When the lock is busy it
 // returns the last value it read, so a caller always gets something sane.
 void     neuStatus(char* out, size_t n);
+// What the header chip says: link problems first (OFFLINE, SYNC), then the
+// machine state upper-cased ("HOLD" for "Hold:0").
+struct NeuChip { char label[12]; uint16_t color; };
+void     neuChipState(NeuChip& c);
 
 // ---------- header ----------
 constexpr int NEU_HDR_H = 30;

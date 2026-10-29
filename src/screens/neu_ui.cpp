@@ -226,9 +226,7 @@ void neuStatus(char* out, size_t n) {
     strlcpy(out, last, n);
 }
 
-// What the header chip says: link problems first, then the machine state.
-struct NeuChip { char label[12]; uint16_t color; };
-static void neuChipState(NeuChip& c) {
+void neuChipState(NeuChip& c) {
     char st[24];
     neuStatus(st, sizeof(st));
     if (!pendantConnected) {
