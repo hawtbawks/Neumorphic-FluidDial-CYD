@@ -548,6 +548,8 @@ void   navigateTo(PendantScreen next);
 // Arm the touch bounce guard without navigating — for actions that redraw the
 // screen under the finger (see the note on the definition).
 void   suppressTouchBounce();
+// Flip the display between Normal and Upside Down and redraw (FluidNC screen).
+void   toggleDisplayRotation();
 // Ask the controller what network it is on — only does anything when $I didn't
 // say (i.e. a wired controller on FluidNC <= v4.1.1).  Called lazily from the
 // FluidNC screen rather than on connect; see the definition for why.

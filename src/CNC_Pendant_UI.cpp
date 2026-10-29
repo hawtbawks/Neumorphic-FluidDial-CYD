@@ -1058,24 +1058,27 @@ static void handleEncoderDelta(int32_t delta) {
     } else if (currentPendantScreen == PSCREEN_MACROS) {
         handleMacrosDial(delta);
     } else if (currentPendantScreen == PSCREEN_FLUIDNC) {
-        // Toggle display rotation. NVS write is deferred to exitFluidNC() —
-        // a rapid spin would otherwise hammer flash with redundant writes.
-        // The pending flag tells exitFluidNC() that the rotation differs from
-        // what's stored on flash and a putInt() is required.
-        static unsigned long lastRotationMs = 0;
-        if (millis() - lastRotationMs > 300) {
-            int newRot = (pendantMachine.rotation == 2) ? 0 : 2;
-            if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-                pendantMachine.rotation        = newRot;
-                pendantMachine.displayRotation = (newRot == 2) ? "Normal" : "Upside Down";
-                xSemaphoreGive(stateMutex);
-            }
-            display.setRotation(newRot);
-            pendantMachine.rotationDirty = true;
-            drawCurrentPendantScreen();
-            lastRotationMs = millis();
-        }
+        toggleDisplayRotation();
     }
+}
+
+// Flip the display rotation (FluidNC screen: a dial turn or a tap on Display).
+// NVS write is deferred to exitFluidNC() — a rapid spin would otherwise hammer
+// flash with redundant writes.  The pending flag tells exitFluidNC() that the
+// rotation differs from what's stored on flash and a putInt() is required.
+void toggleDisplayRotation() {
+    static unsigned long lastRotationMs = 0;
+    if (millis() - lastRotationMs <= 300) return;
+    int newRot = (pendantMachine.rotation == 2) ? 0 : 2;
+    if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+        pendantMachine.rotation        = newRot;
+        pendantMachine.displayRotation = (newRot == 2) ? "Normal" : "Upside Down";
+        xSemaphoreGive(stateMutex);
+    }
+    display.setRotation(newRot);
+    pendantMachine.rotationDirty = true;
+    drawCurrentPendantScreen();
+    lastRotationMs = millis();
 }
 
 void saveJogPrefs() {
