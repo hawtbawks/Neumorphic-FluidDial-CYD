@@ -149,6 +149,8 @@ static void ovrSetTarget(OvrStepper& s, int reported, int target) {
 }
 void overrideSetFeedTarget(int pct)    { ovrSetTarget(feedOvr,    pendantMachine.feedOverride,    pct); }
 void overrideSetSpindleTarget(int pct) { ovrSetTarget(spindleOvr, pendantMachine.spindleOverride, pct); }
+int  overrideFeedShown()    { return feedOvr.target    >= 0 ? feedOvr.target    : pendantMachine.feedOverride; }
+int  overrideSpindleShown() { return spindleOvr.target >= 0 ? spindleOvr.target : pendantMachine.spindleOverride; }
 
 // One paced step toward the target: coarse (±10%) while ≥10 away, else fine (±1%).
 static void ovrStep(OvrStepper& s, unsigned long now, realtime_cmd_t cP,

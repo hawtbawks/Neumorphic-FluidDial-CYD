@@ -1,41 +1,30 @@
+/* screen_feeds_speeds.cpp (Overrides) — neumorphic layout (spec: simulator/js/screens/feeds.js)
+ *   feed card     y 38  h 50   big override % + actual feed; tap = dial adjusts it (accent ring)
+ *   feed presets  y 96  h 34   50 / 75 / 100 / 125 / 150 (selected = the preset matching the value)
+ *   spindle card  y 146 h 50   same, for spindle override + actual RPM
+ *   spindle presets y 204 h 34
+ *   nav           Home | Reset to 100%
+ */
 #include "pendant_shared.h"
+#include "neu_ui.h"
 #include "screen_feeds_speeds.h"
-#include "screen_probe.h"   // PROBE_* colours — shared adjustable-field style
 
-// Adjustable-field style matching probeDrawKVTouch(), rendered into a panel
-// sprite `g` (these readouts update live, so they composite off-screen to stay
-// flicker-free).  Label on top, large value + unit below; the border and value
-// highlight (yellow) while the dial is active.
-static void drawDialField(LovyanGFX* g, int ox, int oy, int w, int h,
-                          int value, uint16_t valColor, bool active) {
-    uint16_t bg  = active ? PROBE_SEL_BG   : PROBE_BG_SCREEN;
-    uint16_t bdr = active ? PROBE_C_YELLOW : PROBE_C_TAPBDR;
-    g->fillRect(ox, oy, w, h, COLOR_BACKGROUND);   // clear corners to screen bg
-    g->fillRoundRect(ox, oy, w, h, 2, bg);
-    g->drawRoundRect(ox, oy, w, h, 2, bdr);
+static const int         OVR_PRESETS[5]     = { 50, 75, 100, 125, 150 };
+static const char* const OVR_PRESET_TXT[5] = { "50", "75", "100", "125", "150" };
+static const int OVR_FEED_Y = 38, OVR_SPIN_Y = 146, OVR_CARD_H = 50, OVR_SEG_OFF = 58, OVR_SEG_H = 34;
 
-    g->setTextSize(1);
-    g->setTextColor(active ? COLOR_WHITE : PROBE_C_LBLUE);
-    g->setCursor(ox + 3, oy + 2);
-    g->print("DIAL");
+enum { NAV_ID_RESET = NAV_ID_FIRST };
+static const NeuNavItem kNav[] = { NAV_HOME, { NAV_ID_RESET, "Reset to 100%", ICON_REFRESH } };
+static const int        kNavN  = 2;
 
-    char vbuf[8];
-    snprintf(vbuf, sizeof(vbuf), "%d", value);
-    g->setTextSize(2);
-    g->setTextColor(active ? PROBE_C_YELLOW : valColor);
-    g->setCursor(ox + 3, oy + 11);
-    g->print(vbuf);
-
-    g->setTextSize(1);
-    g->setTextColor(PROBE_C_DIMBLUE);
-    int16_t vw = g->textWidth(vbuf) * 2;
-    g->setCursor(ox + 3 + vw + 1, oy + 14);
-    g->print("%");
-}
+// Change key per card; pct is also the presets key (they follow the value).
+struct OvrKey { int pct; bool focus; int actual; bool inch; };
+static OvrKey s_feedKey, s_spinKey;
+static bool   s_feedValid, s_spinValid;
 
 void enterFeedsSpeeds() {
-    // Each panel uses a transient 16-bit sprite (see the update*() functions).
     releasePanelSprites();
+    s_feedValid = s_spinValid = false;
 }
 
 void exitFeedsSpeeds() {
@@ -44,144 +33,86 @@ void exitFeedsSpeeds() {
 }
 
 void drawFeedsSpeedsScreen() {
-    display.fillScreen(COLOR_BACKGROUND);
-    drawTitle("FEEDS & SPEEDS");
+    neuHeader("Overrides");
+    s_feedValid = s_spinValid = false;
+    neuInset(10, OVR_FEED_Y, 220, OVR_CARD_H, 12, 3);
+    neuInset(10, OVR_SPIN_Y, 220, OVR_CARD_H, 12, 3);
+    redrawFeedOverrideButtons();
+    redrawSpindleOverrideButtons();
+    neuCaption("Tap a card, then turn the dial", 120, 254, NEU_TEXT3, NEU_CENTER);
+    neuNav(kNav, kNavN);
+}
 
-    updateFeedsSpeedsTopDisplay();
+// The focus ring sits on the background around the card, so it's drawn direct;
+// the interior repaints through the panel sprite.
+static void ovrCard(int y, const char* cap, int pct, const char* actual, const char* unit, bool focus) {
+    neuDrawRoundRect(7, y - 3, 226, OVR_CARD_H + 6, 15, focus ? NEU_ACCENT : NEU_BG);
+    neuDrawRoundRect(8, y - 2, 224, OVR_CARD_H + 4, 14, focus ? NEU_ACCENT : NEU_BG);
+    char capBuf[32], pctBuf[8];
+    snprintf(capBuf, sizeof(capBuf), focus ? "%s - dial" : "%s", cap);
+    snprintf(pctBuf, sizeof(pctBuf), "%d%%", pct);
+    neuPanelBegin(14, y + 4, 213, OVR_CARD_H - 7);
+    neuFillRect(14, y + 4, 213, OVR_CARD_H - 7, NEU_WELL);
+    neuCaption(capBuf, 22, y + 8, focus ? NEU_ACCENT : NEU_TEXT3);
+    neuCaption(unit, 218, y + 8, NEU_TEXT3, NEU_RIGHT);
+    neuText(pctBuf, 22, y + 44, NEU_B18, NEU_TEXT);
+    neuText(actual, 218, y + 40, NEU_B12, NEU_TEXT2, NEU_RIGHT);
+    neuPanelEnd();
+}
 
-    display.setTextColor(COLOR_GRAY_TEXT);
-    display.setTextSize(1);
-    display.setCursor(5, 83);
-    display.print("FEED OVERRIDE");
+static int presetIndex(int pct) {
+    for (int i = 0; i < 5; i++)
+        if (OVR_PRESETS[i] == pct) return i;
+    return -1;
+}
 
-    String pcts[] = { "50%", "75%", "100%", "125%", "150%" };
-    for (int i = 0; i < 3; i++) {
-        uint16_t bg = (i == pendantFeeds.selectedFeedOverride) ? COLOR_ORANGE : COLOR_BUTTON_GRAY;
-        drawButton(5 + i * 78, 95, 72, 37, pcts[i], bg, COLOR_WHITE, 2);
-    }
-    // Presets run 50→150 in reading order across both rows; the DIAL box sits at
-    // the end rather than interrupting the sequence (matching Spindle Control).
-    uint16_t bg3 = (3 == pendantFeeds.selectedFeedOverride) ? COLOR_ORANGE : COLOR_BUTTON_GRAY;
-    drawButton(5, 137, 72, 37, pcts[3], bg3, COLOR_WHITE, 2);
-    uint16_t bg4 = (4 == pendantFeeds.selectedFeedOverride) ? COLOR_ORANGE : COLOR_BUTTON_GRAY;
-    drawButton(83, 137, 72, 37, pcts[4], bg4, COLOR_WHITE, 2);
-    display.fillRoundRect(161, 137, 72, 37, 2, COLOR_BACKGROUND);
-    updateFeedOverrideDisplay();
-
-    display.setTextColor(COLOR_GRAY_TEXT);
-    display.setTextSize(1);
-    display.setCursor(5, 182);
-    display.print("SPINDLE OVERRIDE");
-
-    for (int i = 0; i < 3; i++) {
-        uint16_t bg = (i == pendantFeeds.selectedSpindleOverride) ? COLOR_ORANGE : COLOR_BUTTON_GRAY;
-        drawButton(5 + i * 78, 194, 72, 37, pcts[i], bg, COLOR_WHITE, 2);
-    }
-    uint16_t bg3s = (3 == pendantFeeds.selectedSpindleOverride) ? COLOR_ORANGE : COLOR_BUTTON_GRAY;
-    drawButton(5, 236, 72, 37, pcts[3], bg3s, COLOR_WHITE, 2);
-    uint16_t bg4s = (4 == pendantFeeds.selectedSpindleOverride) ? COLOR_ORANGE : COLOR_BUTTON_GRAY;
-    drawButton(83, 236, 72, 37, pcts[4], bg4s, COLOR_WHITE, 2);
-    display.fillRoundRect(161, 236, 72, 37, 2, COLOR_BACKGROUND);
-    updateSpindleOverrideDisplay();
-
-    drawButton(5, 280, 230, 40, "Main Menu", COLOR_BLUE, COLOR_WHITE, 2);
+static void ovrPresets(int y, int pct) {
+    neuClear(10, y, 220, OVR_SEG_H);
+    neuSegmented(10, y, 220, OVR_SEG_H, OVR_PRESET_TXT, 5, presetIndex(pct));
 }
 
 void updateFeedsSpeedsTopDisplay() {
-    if (currentPendantScreen != PSCREEN_FEEDS_SPEEDS) return;
-
-    int feedRate, spindleRPM;
-    if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(5)) != pdTRUE) return;
-    feedRate   = pendantMachine.feedRate;
-    spindleRPM = pendantMachine.spindleRPM;
-    xSemaphoreGive(stateMutex);
-
-    int ox, oy;
-    LovyanGFX* g = beginPanelSprite(230, 35, ox, oy, 5, 40);
-    g->fillRect(ox, oy, 230, 35, COLOR_BACKGROUND);
-
-    // Feed box
-    g->fillRoundRect(ox + 0, oy + 0, 112, 35, 5, COLOR_DARKER_BG);
-    g->setTextColor(COLOR_GRAY_TEXT);
-    g->setTextSize(1);
-    g->setCursor(ox + 5, oy + 3);
-    g->print("FEED");
-    g->setTextColor(COLOR_ORANGE);
-    g->setTextSize(2);
-    g->setCursor(ox + 5, oy + 13);
-    g->print(feedRate);
-
-    // Spindle box
-    g->fillRoundRect(ox + 118, oy + 0, 112, 35, 5, COLOR_DARKER_BG);
-    g->setTextColor(COLOR_GRAY_TEXT);
-    g->setTextSize(1);
-    g->setCursor(ox + 123, oy + 3);
-    g->print("SPINDLE");
-    g->setTextColor(COLOR_GREEN);
-    g->setTextSize(2);
-    g->setCursor(ox + 123, oy + 13);
-    g->print(spindleRPM);
-
-    endPanelSprite(230, 35, 5, 40);
+    updateFeedOverrideDisplay();
+    updateSpindleOverrideDisplay();
 }
 
 void updateFeedOverrideDisplay() {
     if (currentPendantScreen != PSCREEN_FEEDS_SPEEDS) return;
-
-    int fro;
-    if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(5)) != pdTRUE) return;
-    fro = pendantMachine.feedOverride;
-    xSemaphoreGive(stateMutex);
-
-    int ox, oy;
-    bool active = (pendantFeeds.dialMode == 1);
-    LovyanGFX* g = beginPanelSprite(72, 37, ox, oy, 161, 137);
-    drawDialField(g, ox, oy, 72, 37, fro, COLOR_ORANGE, active);
-    endPanelSprite(72, 37, 161, 137);
+    OvrKey k;
+    memset(&k, 0, sizeof(k));
+    k.pct    = overrideFeedShown();
+    k.focus  = pendantFeeds.dialMode == 1;
+    k.actual = pendantMachine.feedRate;
+    k.inch   = pendantMachine.inInches;
+    if (s_feedValid && memcmp(&k, &s_feedKey, sizeof(k)) == 0) return;
+    const bool presetChanged = !s_feedValid || k.pct != s_feedKey.pct;
+    s_feedKey   = k;
+    s_feedValid = true;
+    char actual[12];
+    snprintf(actual, sizeof(actual), "%d", k.actual);
+    ovrCard(OVR_FEED_Y, "Feed override", k.pct, actual, k.inch ? "in/min" : "mm/min", k.focus);
+    if (presetChanged) ovrPresets(OVR_FEED_Y + OVR_SEG_OFF, k.pct);
 }
 
 void updateSpindleOverrideDisplay() {
     if (currentPendantScreen != PSCREEN_FEEDS_SPEEDS) return;
-
-    int sro;
-    if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(5)) != pdTRUE) return;
-    sro = pendantMachine.spindleOverride;
-    xSemaphoreGive(stateMutex);
-
-    int ox, oy;
-    bool active = (pendantFeeds.dialMode == 2);
-    LovyanGFX* g = beginPanelSprite(72, 37, ox, oy, 161, 236);
-    drawDialField(g, ox, oy, 72, 37, sro, COLOR_GREEN, active);
-    endPanelSprite(72, 37, 161, 236);
+    OvrKey k;
+    memset(&k, 0, sizeof(k));
+    k.pct    = overrideSpindleShown();
+    k.focus  = pendantFeeds.dialMode == 2;
+    k.actual = pendantMachine.spindleRPM;
+    if (s_spinValid && memcmp(&k, &s_spinKey, sizeof(k)) == 0) return;
+    const bool presetChanged = !s_spinValid || k.pct != s_spinKey.pct;
+    s_spinKey   = k;
+    s_spinValid = true;
+    char actual[12];
+    snprintf(actual, sizeof(actual), "%d", k.actual);
+    ovrCard(OVR_SPIN_Y, "Spindle override", k.pct, actual, "rpm", k.focus);
+    if (presetChanged) ovrPresets(OVR_SPIN_Y + OVR_SEG_OFF, k.pct);
 }
 
-void redrawFeedOverrideButtons() {
-    if (currentPendantScreen != PSCREEN_FEEDS_SPEEDS) return;
-    String pcts[] = { "50%", "75%", "100%", "125%", "150%" };
-    for (int i = 0; i < 3; i++) {
-        uint16_t bg = (i == pendantFeeds.selectedFeedOverride) ? COLOR_ORANGE : COLOR_BUTTON_GRAY;
-        drawButton(5 + i * 78, 95, 72, 37, pcts[i], bg, COLOR_WHITE, 2);
-    }
-    uint16_t bg3 = (3 == pendantFeeds.selectedFeedOverride) ? COLOR_ORANGE : COLOR_BUTTON_GRAY;
-    drawButton(5, 137, 72, 37, pcts[3], bg3, COLOR_WHITE, 2);
-    uint16_t bg4 = (4 == pendantFeeds.selectedFeedOverride) ? COLOR_ORANGE : COLOR_BUTTON_GRAY;
-    drawButton(83, 137, 72, 37, pcts[4], bg4, COLOR_WHITE, 2);
-    updateFeedOverrideDisplay();
-}
-
-void redrawSpindleOverrideButtons() {
-    if (currentPendantScreen != PSCREEN_FEEDS_SPEEDS) return;
-    String pcts[] = { "50%", "75%", "100%", "125%", "150%" };
-    for (int i = 0; i < 3; i++) {
-        uint16_t bg = (i == pendantFeeds.selectedSpindleOverride) ? COLOR_ORANGE : COLOR_BUTTON_GRAY;
-        drawButton(5 + i * 78, 194, 72, 37, pcts[i], bg, COLOR_WHITE, 2);
-    }
-    uint16_t bg3s = (3 == pendantFeeds.selectedSpindleOverride) ? COLOR_ORANGE : COLOR_BUTTON_GRAY;
-    drawButton(5, 236, 72, 37, pcts[3], bg3s, COLOR_WHITE, 2);
-    uint16_t bg4s = (4 == pendantFeeds.selectedSpindleOverride) ? COLOR_ORANGE : COLOR_BUTTON_GRAY;
-    drawButton(83, 236, 72, 37, pcts[4], bg4s, COLOR_WHITE, 2);
-    updateSpindleOverrideDisplay();
-}
+void redrawFeedOverrideButtons()    { s_feedValid = false; updateFeedOverrideDisplay(); }
+void redrawSpindleOverrideButtons() { s_spinValid = false; updateSpindleOverrideDisplay(); }
 
 // Request a feed/spindle override %.  The actual real-time bytes are emitted by a
 // paced coarse+fine stepper in the periodic loop (see CNC_Pendant_UI.cpp) — not a
@@ -198,83 +129,49 @@ static void applySpindleOverride(int targetPct) {
 }
 
 void handleFeedsSpeedsTouch(int x, int y) {
-    int pcts[] = { 50, 75, 100, 125, 150 };
-
-    // ── Feed override preset buttons ─────────────────────────────────────
-    for (int i = 0; i < 3; i++) {
-        if (isTouchInBounds(x, y, 5 + i * 78, 95, 72, 37)) {
-            pendantFeeds.dialMode             = 0;
-            pendantFeeds.selectedFeedOverride = i;
-            applyFeedOverride(pcts[i]);   // readout tracks the live reported ramp
-            redrawFeedOverrideButtons();
-            updateSpindleOverrideDisplay();  // deactivate spindle dial visual
-            return;
-        }
-    }
-    if (isTouchInBounds(x, y, 5, 137, 72, 37)) {
-        pendantFeeds.dialMode             = 0;
-        pendantFeeds.selectedFeedOverride = 3;
-        applyFeedOverride(125);
+    const int fSeg = neuSegHit(10, OVR_FEED_Y + OVR_SEG_OFF, 220, OVR_SEG_H, 5, x, y);
+    if (fSeg >= 0) {
+        pendantFeeds.dialMode = 0;
+        pendantFeeds.selectedFeedOverride = fSeg;
+        applyFeedOverride(OVR_PRESETS[fSeg]);
         redrawFeedOverrideButtons();
-        updateSpindleOverrideDisplay();
+        updateSpindleOverrideDisplay();   // drop the spindle card's dial ring
         return;
     }
-
-    if (isTouchInBounds(x, y, 83, 137, 72, 37)) {
-        pendantFeeds.dialMode             = 0;
-        pendantFeeds.selectedFeedOverride = 4;
-        applyFeedOverride(150);
-        redrawFeedOverrideButtons();
-        updateSpindleOverrideDisplay();
-        return;
-    }
-
-    // ── Feed override readout button (end of row 2) ──────────────────────
-    if (isTouchInBounds(x, y, 161, 137, 72, 37)) {
-        pendantFeeds.dialMode = (pendantFeeds.dialMode == 1) ? 0 : 1;  // toggle; deselects spindle
-        updateFeedOverrideDisplay();
-        updateSpindleOverrideDisplay();
-        return;
-    }
-
-    // ── Spindle override preset buttons ──────────────────────────────────
-    for (int i = 0; i < 3; i++) {
-        if (isTouchInBounds(x, y, 5 + i * 78, 194, 72, 37)) {
-            pendantFeeds.dialMode                = 0;
-            pendantFeeds.selectedSpindleOverride = i;
-            applySpindleOverride(pcts[i]);   // readout tracks the live reported ramp
-            redrawSpindleOverrideButtons();
-            updateFeedOverrideDisplay();  // deactivate feed dial visual
-            return;
-        }
-    }
-    if (isTouchInBounds(x, y, 5, 236, 72, 37)) {
-        pendantFeeds.dialMode                = 0;
-        pendantFeeds.selectedSpindleOverride = 3;
-        applySpindleOverride(125);
+    const int sSeg = neuSegHit(10, OVR_SPIN_Y + OVR_SEG_OFF, 220, OVR_SEG_H, 5, x, y);
+    if (sSeg >= 0) {
+        pendantFeeds.dialMode = 0;
+        pendantFeeds.selectedSpindleOverride = sSeg;
+        applySpindleOverride(OVR_PRESETS[sSeg]);
         redrawSpindleOverrideButtons();
         updateFeedOverrideDisplay();
         return;
     }
-
-    if (isTouchInBounds(x, y, 83, 236, 72, 37)) {
-        pendantFeeds.dialMode                = 0;
-        pendantFeeds.selectedSpindleOverride = 4;
-        applySpindleOverride(150);
-        redrawSpindleOverrideButtons();
+    // Tapping a card hands it the dial; tapping it again takes the dial back.
+    if (isTouchInBounds(x, y, 10, OVR_FEED_Y, 220, OVR_CARD_H)) {
+        pendantFeeds.dialMode = pendantFeeds.dialMode == 1 ? 0 : 1;
         updateFeedOverrideDisplay();
-        return;
-    }
-
-    // ── Spindle override readout button (end of row 2) ───────────────────
-    if (isTouchInBounds(x, y, 161, 236, 72, 37)) {
-        pendantFeeds.dialMode = (pendantFeeds.dialMode == 2) ? 0 : 2;  // toggle; deselects feed
         updateSpindleOverrideDisplay();
-        updateFeedOverrideDisplay();
         return;
     }
-
-    if (isTouchInBounds(x, y, 5, 280, 230, 40)) {
+    if (isTouchInBounds(x, y, 10, OVR_SPIN_Y, 220, OVR_CARD_H)) {
+        pendantFeeds.dialMode = pendantFeeds.dialMode == 2 ? 0 : 2;
+        updateFeedOverrideDisplay();
+        updateSpindleOverrideDisplay();
+        return;
+    }
+    switch (neuNavHit(kNav, kNavN, x, y)) {
+    case NAV_ID_HOME:
         currentPendantScreen = PSCREEN_MAIN_MENU;
+        break;
+    case NAV_ID_RESET:
+        pendantFeeds.dialMode = 0;
+        pendantFeeds.selectedFeedOverride    = 2;
+        pendantFeeds.selectedSpindleOverride = 2;
+        applyFeedOverride(100);
+        applySpindleOverride(100);
+        updateFeedOverrideDisplay();
+        updateSpindleOverrideDisplay();
+        break;
     }
 }

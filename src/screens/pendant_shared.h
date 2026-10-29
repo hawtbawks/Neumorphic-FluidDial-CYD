@@ -261,6 +261,9 @@ extern void saveJogPrefs();
 // the periodic loop (see CNC_Pendant_UI.cpp), not an immediate burst of bytes.
 extern void overrideSetFeedTarget(int pct);
 extern void overrideSetSpindleTarget(int pct);
+// The % to show: the target while the stepper is still ramping, else the reported value.
+extern int  overrideFeedShown();
+extern int  overrideSpindleShown();
 
 // Entries held per directory listing.  Fixed char buffers rather than String:
 // 100 small heap allocations on a screen entered AFTER the radio is up is exactly
