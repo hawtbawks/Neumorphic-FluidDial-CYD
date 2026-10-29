@@ -181,12 +181,8 @@ void updateStatusAxisPositions() {
     neuPanelEnd();
 }
 
-// Repaints a field's interior through the panel sprite; the focus-ring outline
-// (always off here) falls outside the panel and is clipped away.
 static void statusField(int x, const char* cap, const char* value, const char* unit) {
-    neuPanelBegin(x + 4, 236, 99, 33);
-    neuFieldValue(x, 232, 106, 40, cap, value, unit);
-    neuPanelEnd();
+    neuFieldRepaint(x, 232, 106, 40, cap, value, unit);
 }
 
 void updateStatusFeedSpindle() {

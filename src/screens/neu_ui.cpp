@@ -565,6 +565,15 @@ void neuFieldValue(int x, int y, int w, int h, const char* cap, const char* valu
     }
 }
 
+void neuFieldRepaint(int x, int y, int w, int h, const char* cap, const char* value, const char* unit,
+                     const NeuFieldStyle& o) {
+    neuDrawRoundRect(x - 3, y - 3, w + 6, h + 6, 11, o.focus ? NEU_ACCENT : NEU_BG);
+    neuDrawRoundRect(x - 2, y - 2, w + 4, h + 4, 10, o.focus ? NEU_ACCENT : NEU_BG);
+    neuPanelBegin(x + 4, y + 4, w - 7, h - 7);
+    neuFieldValue(x, y, w, h, cap, value, unit, o);   // its ring is clipped away here
+    neuPanelEnd();
+}
+
 void neuProgressBar(int x, int y, int w, float frac, uint16_t color) {
     neuFillRoundRect(x, y, w, 4, 2, NEU_SH_DARK);
     int fw = jsRound(w * constrain(frac, 0.0f, 1.0f));

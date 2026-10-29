@@ -196,6 +196,10 @@ void neuField(int x, int y, int w, int h, const char* cap, const char* value, co
 // Repaint only the field's contents and focus ring (no shadow redraw).
 void neuFieldValue(int x, int y, int w, int h, const char* cap, const char* value, const char* unit,
                    const NeuFieldStyle& o = NeuFieldStyle());
+// neuFieldValue() for an update*(): the focus ring is drawn direct (it sits on
+// the background, outside the panel) and the interior through the panel sprite.
+void neuFieldRepaint(int x, int y, int w, int h, const char* cap, const char* value, const char* unit,
+                     const NeuFieldStyle& o = NeuFieldStyle());
 // Thin progress bar for use inside a well.
 void neuProgressBar(int x, int y, int w, float frac, uint16_t color = NEU_ACCENT);
 // Small amber hint line with a warning triangle (centred).
