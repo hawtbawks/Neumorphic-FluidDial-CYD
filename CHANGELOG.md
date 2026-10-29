@@ -6,18 +6,34 @@
 **2026-10-29**
 
 v2.4.0-neu (fork: [hawtbawks/FluidDial-CYD](https://github.com/hawtbawks/FluidDial-CYD), branch `neu-ui`)
-* New: **neumorphic UI** on every screen — raised buttons and pressed-in readouts on one slate surface, FreeSans type, the machine state in a coloured chip in every header, Home always bottom-left. See the [README](README.md#-the-neumorphic-ui) and the [Probing Guide](Probing.md).
+
+The whole UI is redesigned. Behaviour, G-code, settings and the flash layout are carried over from v2.3.3 unless listed here, so **Update** keeps everything (settings, ESP-NOW pairings, screen-type detection, jog and probe preferences, rotation).
+
+* New: **neumorphic UI** on every screen — raised buttons and pressed-in readouts on one slate surface (`#2C3038`), FreeSans type, orange only for focus, and Home always bottom-left. See the [README](README.md#-the-neumorphic-ui) and the [Probing Guide](Probing.md).
+* New: **machine state in the header of every screen** — a coloured chip with an LED dot (OFFLINE, SYNC, IDLE, RUN, JOG, HOME, HOLD, ALARM …). On a wireless pendant the signal bars and battery sit beside it (they were at the two ends of the old title bar).
 * Renamed: **Feeds & Speeds** is now **Overrides**, **SD Card** is now **Files**.
 * New: **Go to XY0 / Z0** on Work Area, each behind a confirmation.
-* New: **2×2 corner picker** on XYZ Corner, and a round / rectangular **shape picker** on Boss.
-* Change: every probe routine asks **Start probing?** before it moves, naming the routine and the coordinate system; the result card on each routine screen cycles G54–G57.
-* Change: the jog feed is a button in the Jog bottom bar — tap it to set the feed with the dial (500 mm/min per click), tap again to go back to jogging. It can be set before the controller connects, and never shows more than the controller's `$110`.
-* Change: tapping back to the transport that's running cancels the Connection screen's reboot countdown.
+* New: **2×2 corner picker** on XYZ Corner (was a cycle button), and a round / rectangular **shape picker** on Boss (was a tap on the diagram).
+* Change: every probe routine asks **Start probing?** before it moves, naming the routine and the coordinate system; the result card on each routine screen cycles G54–G57 (was the Work Area button). Probe Setup and Plate Setup have Save and Back, and Calibrate asks before moving, shows progress, then offers to apply the result.
+* Change: **Jog** has one row per axis — tap a row to give it the dial; the large number is the work position, the small one the machine position, and the axis being homed shows HOMING. The coarse step slot shows which of 10 / 50 / 100 it holds. The A axis's steps are labelled in degrees (the ° after its DRO value is gone).
+* Change: the **jog feed** is a button in the Jog bottom bar — tap it to set the feed with the dial (500 mm/min or 20 ipm per click), tap again to go back to jogging. The number shown is always the feed that is sent.
+* Change: **Spindle** — tap the RPM card to set the target with the dial; the separate Dial button is gone. Start stays pressed in and reads Running while the spindle runs, and pops back out if it is stopped another way. Leaving the screen releases the dial.
+* Change: **Overrides** — tap a card, then turn the dial; the card shows the target straight away while the paced ramp catches up.
+* Change: **Files** and **Macros** — tapping the selected entry again deselects it; the page readout moved into the strip at the top (tap it, or turn the dial, to page).
+* Change: **FluidNC** — tapping **Display** turns the screen 180°, as a dial turn already did.
+* Change: tapping back to the transport that's running cancels the Connection screen's reboot countdown (it used to restart the timer).
+* Change: the Jog Home, Work Area Set zero and Spindle Start / Stop buttons no longer flash white when tapped.
+* Change: long state words ("Connecting") drop a font size instead of being cut short.
 * Change: new boot logo artwork on the slate background. The logo is in the filesystem image, which **Update** also writes.
+* Fix: the jog feed dial did nothing while the controller was disconnected, although the button showed "Dial sets feed" — the feed and coarse step are local settings and now work offline; only jogging needs the link.
+* Fix: a controller reporting `$110` below 1000 mm/min inverted the jog feed clamp; the feed now never drops below 1000 mm/min or exceeds `$110`, and the button shows the capped value.
+* Fix: if the controller switched units while Jog was open, the step labels changed but the step sent did not (a "1" could move 1 inch). The step is re-applied on every redraw, and a change in axis count or units redraws the screen.
 * Fix: Work Area **Set zero All** no longer reads past its axis table on a 5- or 6-axis controller.
-* Settings, pairings and the flash layout are unchanged, so **Update** keeps everything.
+* Change: the Files and Macros lists no longer allocate a 46 KB list buffer on entry — they repaint row by row through the shared panel buffer — so those screens leave more heap free. The firmware is slightly smaller than v2.3.3 despite the added fonts.
+* Docs: README and Probing Guide rewritten for the new UI with screenshots; the guide's quick reference now says Bore/Boss probe four points and take opposed-pair midpoints (it said a three-point circle fit).
+* Build: `build_merged.py` quotes its paths, so the installer images build from a folder with spaces in its name.
+* Dev: `simulator/` runs every screen in a browser at the panel's resolution and colours, and is the spec for the firmware screens.
 * Web installer for this fork: https://hawtbawks.github.io/FluidDial-CYD/
-
 
 **2026-10-18**
 
