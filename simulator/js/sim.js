@@ -436,7 +436,7 @@ function enterBoot() {
 function exitBoot() { clearTimeout(_bootTimer); _bootAuto = false; }
 
 function drawBootScreen() {
-  display.fillScreen(COLOR_BACKGROUND);
+  display.fillScreen(NEU_BG);   // the logo's background is painted to match
   const paint = () => {
     if (currentPendantScreen !== PSCREEN_BOOT || !_bootLogo.naturalWidth) return;
     octx.drawImage(_bootLogo, ((240 - _bootLogo.naturalWidth) / 2) | 0,

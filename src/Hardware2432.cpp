@@ -499,7 +499,13 @@ void redrawButtons() {
 }
 
 void show_logo() {
+#ifdef USE_NEW_UI
+    // The neumorphic UI's surface colour (NEU_BG, #2C3038) — the logo's own
+    // background is painted to match, so it sits on the screen with no box.
+    display.fillScreen(0x2987);
+#else
     display.clear();
+#endif
     display.drawPngFile(
         LittleFS, "/fluid_dial.png", sprite_offset.x, sprite_offset.y, sprite_wh, sprite_wh, 0, 0, 0.0f, 0.0f, datum_t::middle_center);
 }
