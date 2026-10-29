@@ -3,13 +3,15 @@ import shutil, os
 
 flash_size = env.BoardConfig().get("upload.flash_size", "detect")
 
-merge_cmd = '$PYTHONEXE $UPLOADER --chip $BOARD_MCU merge_bin --output $BUILD_DIR/merged-flash.bin --flash_mode dio --flash_size ' + flash_size + " "
+# Every path is quoted: a project under a folder with spaces in its name would
+# otherwise split into several arguments and esptool rejects the command.
+merge_cmd = '"$PYTHONEXE" "$UPLOADER" --chip $BOARD_MCU merge_bin --output "$BUILD_DIR/merged-flash.bin" --flash_mode dio --flash_size ' + flash_size + " "
 
 for image in env.get("FLASH_EXTRA_IMAGES", []):
-    merge_cmd += image[0] + " " + env.subst(image[1]) + " "
+    merge_cmd += image[0] + ' "' + env.subst(image[1]) + '" '
 
 filesystem_start = env.GetProjectOption("custom_filesystem_start", "Missing_custom_filesystem_start_variable")
-merge_cmd += " 0x10000 $BUILD_DIR/firmware.bin " + filesystem_start + " $BUILD_DIR/littlefs.bin"
+merge_cmd += ' 0x10000 "$BUILD_DIR/firmware.bin" ' + filesystem_start + ' "$BUILD_DIR/littlefs.bin"'
 
 
 def copy_to_docs(target, source, env):

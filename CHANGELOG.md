@@ -3,6 +3,22 @@
 **ChangeLog:**
 
 
+**2026-10-29**
+
+v2.4.0-neu (fork: [hawtbawks/FluidDial-CYD](https://github.com/hawtbawks/FluidDial-CYD), branch `neu-ui`)
+* New: **neumorphic UI** on every screen — raised buttons and pressed-in readouts on one slate surface, FreeSans type, the machine state in a coloured chip in every header, Home always bottom-left. See the [README](README.md#-the-neumorphic-ui) and the [Probing Guide](Probing.md).
+* Renamed: **Feeds & Speeds** is now **Overrides**, **SD Card** is now **Files**.
+* New: **Go to XY0 / Z0** on Work Area, each behind a confirmation.
+* New: **2×2 corner picker** on XYZ Corner, and a round / rectangular **shape picker** on Boss.
+* Change: every probe routine asks **Start probing?** before it moves, naming the routine and the coordinate system; the result card on each routine screen cycles G54–G57.
+* Change: the jog feed is a button in the Jog bottom bar — tap it to set the feed with the dial (500 mm/min per click), tap again to go back to jogging. It can be set before the controller connects, and never shows more than the controller's `$110`.
+* Change: tapping back to the transport that's running cancels the Connection screen's reboot countdown.
+* Change: new boot logo artwork on the slate background. The logo is in the filesystem image, which **Update** also writes.
+* Fix: Work Area **Set zero All** no longer reads past its axis table on a 5- or 6-axis controller.
+* Settings, pairings and the flash layout are unchanged, so **Update** keeps everything.
+* Web installer for this fork: https://hawtbawks.github.io/FluidDial-CYD/
+
+
 **2026-10-18**
 
 v2.3.3

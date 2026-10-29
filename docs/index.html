@@ -192,7 +192,7 @@
 
   <header>
     <h1>FluidDial-CYD</h1>
-    <p>Web Installer for the CYD FluidNC Pendant</p>
+    <p>Web Installer for the CYD FluidNC Pendant — neumorphic UI</p>
   </header>
 
   <div class="card">
@@ -211,7 +211,7 @@
   <div class="card">
     <h2>Install Firmware</h2>
     <div class="install-section">
-      <div class="version-badge">v2.3.3 — Latest Release</div>
+      <div class="version-badge">v2.4.0-neu — Neumorphic UI</div>
       <div id="install-count" class="install-count" style="display:none;"></div>
       <p style="text-align:center;">
         Connect your CYD to USB, then click one of the buttons below.<br />
@@ -264,15 +264,15 @@
     <h2>After Installing</h2>
     <p><strong>First boot — screen detection:</strong> the pendant will display "Capacitive — Tap the Screen" then "Resistive — Tap the Screen". Tap when your screen type is shown. The result is saved and the pendant reboots automatically — this only happens once.</p>
     <p><strong>Wired (UART):</strong> connect your CYD pendant to your FluidNC controller via UART (TX/RX). The pendant detects the controller automatically and displays axis positions and machine state, and allows jogging, homing, probing and spindle control.</p>
-    <p><strong>Wireless (ESP-NOW):</strong> new in v2.2.0 — a direct encrypted radio link with no WiFi network, access point or router involved. It needs <strong>FluidNC v4.0.4 or newer</strong> on the controller. Go to <em>FluidNC &gt; Connection</em>, choose <strong>ESP-NOW</strong> (the pendant reboots to apply), then tap <strong>Pair New</strong> and run <code>$espnow/pair</code> on the controller. Every feature works exactly as it does over UART.</p>
+    <p><strong>Wireless (ESP-NOW):</strong> new in v2.2.0 — a direct encrypted radio link with no WiFi network, access point or router involved. It needs <strong>FluidNC v4.0.4 or newer</strong> on the controller. Go to <em>Status &gt; FluidNC &gt; Connection</em>, choose <strong>ESP-NOW</strong> (the pendant reboots to apply), then tap <strong>Pair</strong> and run <code>$espnow/pair</code> on the controller. Every feature works exactly as it does over UART.</p>
     <p><em>The WiFi transport was removed in v2.2.0.</em> If you rely on it, stay on <a href="https://github.com/dJOS1475/FluidDial-CYD/releases/tag/v2.1.11" style="color:#58a6ff;">v2.1.11</a>.</p>
-    <p>See the <a href="https://github.com/dJOS1475/FluidDial-CYD" style="color:#58a6ff;">GitHub repository</a> for full documentation and wiring instructions.</p>
+    <p>See the <a href="https://github.com/hawtbawks/FluidDial-CYD/tree/neu-ui" style="color:#58a6ff;">GitHub repository</a> for full documentation and wiring instructions. This build is a fork of <a href="https://github.com/dJOS1475/FluidDial-CYD" style="color:#58a6ff;">dJOS1475/FluidDial-CYD</a> with a redesigned (neumorphic) UI; the original release installer is at <a href="https://djos1475.github.io/FluidDial-CYD/" style="color:#58a6ff;">djos1475.github.io/FluidDial-CYD</a>.</p>
   </div>
 
   <footer>
     <p>
       FluidDial-CYD is open source —
-      <a href="https://github.com/dJOS1475/FluidDial-CYD">View on GitHub</a>
+      <a href="https://github.com/hawtbawks/FluidDial-CYD/tree/neu-ui">View on GitHub</a>
     </p>
   </footer>
 
@@ -288,9 +288,9 @@
       if (!el) return;
       try {
         const badge = document.querySelector('.version-badge')?.textContent || '';
-        const v = (badge.match(/(\d+\.\d+\.\d+)/) || [])[1];
+        const v = (badge.match(/(\d+\.\d+\.\d+(?:-[\w.]+)?)/) || [])[1];
         if (!v) return;
-        const url = 'https://data.jsdelivr.com/v1/stats/packages/gh/dJOS1475/FluidDial-CYD@'
+        const url = 'https://data.jsdelivr.com/v1/stats/packages/gh/hawtbawks/FluidDial-CYD@v'
                   + v + '/files?period=year';
         const res = await fetch(url);
         if (!res.ok) return;

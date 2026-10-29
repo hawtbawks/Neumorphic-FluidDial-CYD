@@ -14,10 +14,10 @@ See [CHANGELOG.md](CHANGELOG.md)
 
 <img src="https://raw.githubusercontent.com/dJOS1475/FluidDial-CYD/refs/heads/main/new_ui/Pendant5.jpeg" alt="CYD Dial Pendant With Buttons and Jog Dial" height="500">
 
-**Web Installer** (use Chrome/Edge):
-https://djos1475.github.io/FluidDial-CYD/
+**Web Installer** (use Chrome/Edge) — installs this branch, the neumorphic UI:
+https://hawtbawks.github.io/FluidDial-CYD/
 
-> The web installer and the [Releases page](https://github.com/dJOS1475/FluidDial-CYD/releases) install the current release, which uses the previous UI. To run the neumorphic UI, build and flash this branch — see [Building from source](#building-from-source).
+> The original FluidDial-CYD release, with the previous UI, has its own installer at https://djos1475.github.io/FluidDial-CYD/ and downloads on its [Releases page](https://github.com/dJOS1475/FluidDial-CYD/releases).
 
 * Unplug the RJ12 connection between the CYD and the FluidNC controller
 * Connect the CYD USB port to your computer
@@ -288,7 +288,7 @@ Wiki pages for more information: CYD Dial Pendant (http://wiki.fluidnc.com/en/ha
 
 ### Building from source
 
-The only supported build target is **`cyd_new_ui_combined`** — a single binary that runs on every supported CYD variant (resistive XPT2046, capacitive CST816S, with or without the IP5306 battery PMIC). It is the binary published via the web installer and on the [Releases page](https://github.com/dJOS1475/FluidDial-CYD/releases).
+The only supported build target is **`cyd_new_ui_combined`** — a single binary that runs on every supported CYD variant (resistive XPT2046, capacitive CST816S, with or without the IP5306 battery PMIC). It is the binary published via the web installer.
 
 ```
 pio run -e cyd_new_ui_combined
