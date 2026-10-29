@@ -1,34 +1,6 @@
 #pragma once
 
-// ── Probe colour palette — uses the same dark/orange/gray theme as the rest of the UI.
-// All PROBE_* constants alias the shared COLOR_* macros from cnc_pendant_config.h.
-#define PROBE_BG_SCREEN   COLOR_BACKGROUND    // 0x0000 — pure black
-#define PROBE_BG_PANEL    COLOR_DARKER_BG     // 0x2104 — dark gray panels
-#define PROBE_C_YELLOW    COLOR_ORANGE        // 0xFD20 — primary value / highlight colour
-#define PROBE_C_GREEN     COLOR_GREEN         // 0x07E0
-#define PROBE_C_RED       COLOR_RED           // 0xF800
-#define PROBE_C_BLUE      COLOR_CYAN          // 0x07FF — secondary values
-#define PROBE_C_LBLUE     COLOR_GRAY_TEXT     // 0x7BEF — section labels
-#define PROBE_C_DIMBLUE   0x4208              // dim gray — unit suffixes, hint text
-#define PROBE_C_TAPBDR    COLOR_GRAY_TEXT     // 0x7BEF — border of every TAPPABLE field
-                                              // (read-only panels are borderless; a
-                                              //  yellow border means focused/active)
-#define PROBE_BTN_GREEN   COLOR_DARK_GREEN    // 0x0360 — PROBE action button
-#define PROBE_BTN_YELLOW  COLOR_ORANGE        // 0xFD20
-#define PROBE_BTN_BLUE    COLOR_BLUE          // 0x1C9F — Main Menu / nav buttons
-#define PROBE_BTN_NAVY    COLOR_BUTTON_GRAY   // 0x31A6
-#define PROBE_BTN_TEAL    COLOR_TEAL_BRIGHT   // 0x05B6 — Configure button (distinct from blue nav)
-// Routine-button identity colours.  These name a routine, they don't signal state —
-// so they deliberately avoid orange (= selected) and the bright greens (= execute).
-#define PROBE_BTN_INDIGO  COLOR_INDIGO        // 0x52B9 — XYZ Corner routine (was ORANGE,
-                                              //  which was identical to the selected-chip colour)
-#define PROBE_BTN_PURPLE  0x8010              // Boss routine
-#define PROBE_SEL_BG      COLOR_DARKER_BG     // 0x2104 — focused field background
-#define PROBE_WARN_BG     0x2880              // amber warning bg (functional colour — keep)
-#define PROBE_WARN_BDR    0x6800              // amber warning border
-#define PROBE_WARNR_BG    0x2800              // red warning bg
-#define PROBE_WARNR_BDR   0x6808              // red warning border
-#define PROBE_AMBER       COLOR_ORANGE        // 0xFD20 — sequence badge active
+#include "neu_ui.h"
 
 // ── Probe type model (pendantProbeV2.probeTypeIdx) ──────────────────────────
 //   0 = Z-Height Touch Plate  — Z only.            Routine: Z Surface
@@ -68,36 +40,18 @@ void enterProbe();
 void exitProbe();
 void drawProbeScreen();
 void updateProbeScreen();
-void updateProbeSharedFields();   // redraw only the shared KV fields (flicker-free dial edit)
+void updateProbeSharedFields();   // redraw only the shared fields (flicker-free dial edit)
 void handleProbeTouch(int x, int y);
 
 // NVS persistence — shared across all probe screens
 void saveProbeSettings();
 void loadProbeSettings();
 
-// Shared drawing helpers used by all probe screens
-void probeDrawPosPanel(int y, int h = 28);
-void probeDrawSettingsLink(int y);
-void probeDrawSelBar(int y, const char* fieldName, float value, const char* unit, int decimals = 3);
-void probeDrawSelBarInt(int y, const char* fieldName, int value);
-void probeDrawKVTouch(int x, int y, int w, int h, const char* label, float value, const char* unit,
-                      uint16_t valColor, bool focused, int decimals = 3);
-void probeDrawKVTouchInt(int x, int y, int w, int h, const char* label, int value,
-                         uint16_t valColor, bool focused);
-void probeDrawWarn(int y, const char* msg, bool isRed = false, int h = 14);
-void probeDrawConfirmOverlay(const char* routineName);
-
-// Work-area button (shared across all routine screens): shows the WCS the probe
-// will zero (G54..G57) in the Z-Surface "Sets" style; tap cycles it.
-void probeDrawWorkAreaButton(int x, int y, int w, int h);
+// Work-area selection shared by every routine screen: cycle G54..G57 (selection
+// only), and make the selected system active on the controller so a probe's
+// G10 L20 zero takes effect in the system on screen.  Every routine calls
+// probeActivateWcs() before it probes.
 void probeCycleWorkArea();
-
-// Sequence-step badge (numbered circle + label) used by the routine screens.
-void drawSeqStep(int x, int y, int num, const char* txt, bool active);
-
-// Make the selected work coordinate system (G54..G57) active on the controller,
-// so a probe's G10 L20 zero takes effect immediately in the system on screen
-// (no manual re-zero).  Every routine calls this before it probes.
 void probeActivateWcs();
 
 // Dial acceleration helper — returns the adjusted step multiplier
@@ -116,3 +70,49 @@ void probeSeekFine(const char* axis, float seekDist, float seekF, float fineF);
 // to rest bakes that overshoot straight into the work offset.  Always a retreat
 // away from the work, so safe at rapid.  Must be called in G90.  axis = "X"|"Y"|"Z".
 void probeReturnToTrigger(const char* axis);
+
+// ── Probe kit: shared neumorphic layout (spec: simulator/js/screens/probe_kit.js) ──
+//   position strip  y 38  h 24   live work X / Y / Z
+//   left column     x 10  w 110  sequence well (y 70 h 96) + diagram well (y 174 h 76)
+//   right column    x 128 w 102  setting fields, then the result card (tap = next WCS)
+//   hint            y 258        amber reminder, red when something blocks probing
+//   nav             Home | Back (probe hub) | Probe
+constexpr int PRK_POS_Y = 38, PRK_POS_H = 24, PRK_RX = 128, PRK_RW = 102, PRK_HINT_Y = 258;
+extern const NeuRect PRK_SEQ;
+extern const NeuRect PRK_DIAG;
+
+enum { PRK_NAV_PROBE = NAV_ID_FIRST, PRK_NAV_SAVE, PRK_NAV_CFG };
+extern const NeuNavItem PROBE_ROUTINE_NAV[3];
+extern const NeuNavItem PROBE_CFG_NAV[3];
+
+void prkPosStrip(bool force);
+void prkSequence(const char* const* steps, int n, const NeuRect& r = PRK_SEQ);
+void prkDiagramWell(const NeuRect& r = PRK_DIAG);
+// Result card: what the routine sets, and in which work system.  Tap cycles G54..G57.
+void prkResultCard(const NeuRect& r, const char* what);
+void prkResultValue(const NeuRect& r, const char* what);
+void prkHint(const char* msg, bool red = false);
+void prkConfirm(const char* routine);
+// Values are stored in mm; inch mode shows them converted.  Writes the value
+// text to out and returns the unit.
+const char* prkLen(float mm, int decMm, char* out, size_t n);
+
+// Common touch handling for a routine screen.  Returns true when handled.
+struct PrkTouch {
+    const char*    name;                   // shown in the confirm dialog
+    const NeuRect* fields;                 // in focus-index order
+    int            nFields;
+    const NeuRect* result;                 // result card (tap = next WCS), or null
+    const char*    resultWhat;
+    void (*run)();                         // sends the G-code
+    void (*redraw)();                      // full repaint
+    void (*redrawFields)();                // fields only
+    bool (*extra)(int x, int y);           // screen-specific controls, or null
+};
+bool prkHandleTouch(int x, int y, const PrkTouch& o);
+
+// Diagram parts, drawn inside a diagram well.
+void prkProbeTool(int cx, int tipY, int len);
+void prkArrowDown(int x, int y, int len, uint16_t c);
+void prkArrowLeft(int x, int y, int len, uint16_t c);
+void prkArrowRight(int x, int y, int len, uint16_t c);

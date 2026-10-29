@@ -1,5 +1,6 @@
 /*
- * screen_probe_bore_boss.cpp  —  SCR3a: Bore / SCR3b: Boss
+ * screen_probe_bore_boss.cpp  —  SCR3a: Bore / SCR3b: Boss, neumorphic layout
+ * (spec: simulator/js/screens/probe_bore_boss.js, layout from the probe kit)
  *
  * Both routines find the XY centre of a round feature by probing FOUR points
  * radially at 90° (±X, ±Y) and averaging the two opposed pairs: the centre is
@@ -74,11 +75,11 @@ static void emitMoveCentreZero(int pNum) {
 //  SCR3a — BORE PROBE
 // ══════════════════════════════════════════════════════════════════════════════
 
+static const NeuRect PB_FIELDS[2] = { { PRK_RX, 70, PRK_RW, 46 }, { PRK_RX, 124, PRK_RW, 46 } };
+static const NeuRect PB_RESULT    = { PRK_RX, 178, PRK_RW, 72 };
+
 void enterProbeBore() {
-    spriteStatusBar.deleteSprite();
-    spriteAxisDisplay.deleteSprite();
-    spriteValueDisplay.deleteSprite();
-    spriteFileDisplay.deleteSprite();
+    releasePanelSprites();
     pendantProbeV2.focusedField   = 0;
     pendantProbeV2.confirmActive  = false;
     pendantProbeV2.dialAccelCount = 0;
@@ -125,139 +126,60 @@ static void runProbeBore() {
     emitMoveCentreZero(pNum);
 }
 
-// ── Draw helpers (bore) ──────────────────────────────────────────────────────
+// ── Draw (bore) ──────────────────────────────────────────────────────────────
 
-// Top-down diagram of bore probing, drawn in the left column under the SEQUENCE
-// list: the hole outline with arrows probing outward to the walls and a centre
-// mark (XY centre finding).
+// Top-down: the bore in the stock, centre mark, outward probe moves.
 static void drawBoreDiagram() {
-    // Inverted boss: a pocket recessed into the stock (cross-section).  Stylus
-    // descends into the hole; arrows probe outward to the side walls (XY).
-    display.fillRect(18, 182, 84, 20, PROBE_C_DIMBLUE);   // stock block (surface y182)
-    display.fillRect(46, 182, 28, 13, PROBE_BG_PANEL);    // bored pocket (void, boss-width)
-    // Probe body/stem + stylus descending into the hole
-    display.fillRoundRect(55, 150, 10, 12, 2, PROBE_C_LBLUE);
-    display.drawLine(60, 161, 60, 189, PROBE_C_YELLOW);
-    display.fillCircle(60, 191, 2, PROBE_C_YELLOW);
-    // Side-wall probes (XY) — outward arrows
-    display.drawLine(60, 188, 48, 188, PROBE_C_GREEN);    // left shaft
-    display.drawLine(48, 188, 52, 185, PROBE_C_GREEN);    // left head
-    display.drawLine(48, 188, 52, 191, PROBE_C_GREEN);
-    display.drawLine(60, 188, 72, 188, PROBE_C_GREEN);    // right shaft
-    display.drawLine(72, 188, 68, 185, PROBE_C_GREEN);    // right head
-    display.drawLine(72, 188, 68, 191, PROBE_C_GREEN);
+    const int x = PRK_DIAG.x, y = PRK_DIAG.y, cx = x + 55, cy = y + 38;
+    neuFillRect(x + 14, y + 12, 82, 52, NEU_TEXT3);
+    neuFillCircle(cx, cy, 20, NEU_WELL);
+    neuDrawCircle(cx, cy, 20, NEU_TEXT2);
+    prkArrowLeft(cx - 17, cy, 14, NEU_JOG);
+    prkArrowRight(cx + 3, cy, 14, NEU_JOG);
+    neuFillCircle(cx, cy, 3, NEU_ACCENT);
 }
 
-// Redraws ONLY the bore settings fields (opaque boxes) — used by the full draw
-// and by the dial handler so a jog-dial edit doesn't trigger a full-screen redraw.
+// Redraws ONLY the bore settings fields — used by the full draw and by the dial
+// handler so a jog-dial edit doesn't trigger a full-screen redraw.
 void updateProbeBoreFields() {
     if (currentPendantScreen != PSCREEN_PROBE_BORE) return;
-    int fo = pendantProbeV2.focusedField;
-    // 1 decimal — the dial steps these in 0.1 mm.
-    probeDrawKVTouch(122, 84,  111, 27, "Nominal dia.", pendantProbeV2.boreDia,    "mm", PROBE_C_BLUE, fo==0, 1);
-    probeDrawKVTouch(122, 113, 111, 27, "Wall offset",  pendantProbeV2.boreOffset, "mm", PROBE_C_BLUE, fo==1, 1);
+    const int fo = pendantProbeV2.focusedField;
+    char a[12], b[12];
+    const char* ua = prkLen(pendantProbeV2.boreDia, 1, a, sizeof(a));
+    const char* ub = prkLen(pendantProbeV2.boreOffset, 1, b, sizeof(b));
+    NeuFieldStyle o;
+    o.focus = fo == 0;
+    neuFieldRepaint(PB_FIELDS[0].x, PB_FIELDS[0].y, PRK_RW, 46, "Nominal dia", a, ua, o);
+    o.focus = fo == 1;
+    neuFieldRepaint(PB_FIELDS[1].x, PB_FIELDS[1].y, PRK_RW, 46, "Wall offset", b, ub, o);
 }
 
+static const char* const kBoreName = "Bore centre (Z unchanged)";
+
 void drawProbeBoreScreen() {
-    display.fillScreen(PROBE_BG_SCREEN);
-    drawTitle("BORE");
-    probeDrawPosPanel(38);
-
-    // ── Combined panel: sequence (left) + settings & result (right) ───────────
-    display.fillRoundRect(5, 70, 230, 146, 4, PROBE_BG_PANEL);
-
-    // Left column: sequence steps
-    display.setTextSize(1);
-    display.setTextColor(PROBE_C_LBLUE);
-    display.setCursor(10, 73);
-    display.print("SEQUENCE");
-    drawSeqStep( 8, 87,  1, "Probe 4 points", true);
-    drawSeqStep( 8, 105, 2, "Find centre",    false);
-    drawSeqStep( 8, 123, 3, "Set X0 Y0",      false);
+    static const char* const kSteps[3] = { "Probe 4 walls", "Find centre", "Set X0 Y0" };
+    neuHeader("Bore");
+    prkPosStrip(true);
+    prkSequence(kSteps, 3);
+    prkDiagramWell();
     drawBoreDiagram();
-
-    // Right column: 2 KV-touch settings (h=27 so the value isn't clipped)
-    display.setTextSize(1);
-    display.setTextColor(PROBE_C_LBLUE);
-    display.setCursor(122, 73);
-    display.print("SETTINGS");
-
+    for (const NeuRect& f : PB_FIELDS) neuInset(f.x, f.y, f.w, f.h, 8, 3);
     updateProbeBoreFields();
-
-    // Right column, centred: result line, then the Z-Surface note.
-    display.setTextSize(1);
-    {
-        const char* s = "Sets X0 Y0";
-        display.setTextColor(PROBE_C_GREEN);
-        display.setCursor(177 - display.textWidth(s) / 2, 150);
-        display.print(s);
-        const char* a = "Z work-zero:";
-        display.setTextColor(PROBE_C_LBLUE);
-        display.setCursor(177 - display.textWidth(a) / 2, 168);
-        display.print(a);
-        display.setTextColor(PROBE_C_GREEN);
-        const char* b = "use Z Surface";
-        display.setCursor(177 - display.textWidth(b) / 2, 182);
-        display.print(b);
-        const char* c = "probe routine";
-        display.setCursor(177 - display.textWidth(c) / 2, 196);
-        display.print(c);
-    }
-
-    probeDrawWarn(220, "! Place tip inside the bore");
-
-    // Bottom-nav row: Back (left) | work-area selector (right)
-    drawButton(5, 239, 112, 38, "Back", PROBE_BTN_BLUE, COLOR_WHITE, 2);
-    probeDrawWorkAreaButton(123, 239, 112, 38);
-
-    drawButton(  5, 280, 112, 38, "Main Menu", PROBE_BTN_BLUE,  COLOR_WHITE, 2);
-    drawButton(123, 280, 112, 38, "Probe",     PROBE_BTN_GREEN, COLOR_WHITE, 2);
-
-    if (pendantProbeV2.confirmActive)
-        probeDrawConfirmOverlay("BORE");
+    prkResultCard(PB_RESULT, "X0 Y0");
+    prkHint("Place the tip inside the bore");
+    neuNav(PROBE_ROUTINE_NAV, 3);
+    if (pendantProbeV2.confirmActive) prkConfirm(kBoreName);
 }
 
 void updateProbeBoreScreen() {
-    if (currentPendantScreen != PSCREEN_PROBE_BORE) return;
-    probeDrawPosPanel(38);
+    if (currentPendantScreen != PSCREEN_PROBE_BORE || pendantProbeV2.confirmActive) return;
+    prkPosStrip(false);
 }
 
 void handleProbeBoreTouch(int x, int y) {
-    if (pendantProbeV2.confirmActive) {
-        if (isTouchInBounds(x, y, 28, 175, 78, 32)) {
-            pendantProbeV2.confirmActive = false;
-            drawProbeBoreScreen();
-        } else if (isTouchInBounds(x, y, 114, 175, 98, 32)) {
-            pendantProbeV2.confirmActive = false;
-            runProbeBore();
-            currentPendantScreen = PSCREEN_STATUS;
-        }
-        return;
-    }
-
-    bool redraw = false;
-    if (isTouchInBounds(x, y, 122, 84,  111, 27)) { pendantProbeV2.focusedField=(pendantProbeV2.focusedField==0)?-1:0; redraw=true; }
-    if (isTouchInBounds(x, y, 122, 113, 111, 27)) { pendantProbeV2.focusedField=(pendantProbeV2.focusedField==1)?-1:1; redraw=true; }
-    if (redraw) { drawProbeBoreScreen(); return; }
-
-    if (isTouchInBounds(x, y, 5, 239, 112, 38)) {
-        pendantProbeV2.returnScreen  = PSCREEN_PROBE_BORE;
-        currentPendantScreen = PSCREEN_PROBE;
-        return;
-    }
-    if (isTouchInBounds(x, y, 123, 239, 112, 38)) {
-        probeCycleWorkArea();
-        drawProbeBoreScreen();
-        return;
-    }
-
-    if (isTouchInBounds(x, y, 5, 280, 112, 38)) { currentPendantScreen = PSCREEN_MAIN_MENU; return; }
-    if (isTouchInBounds(x, y, 123, 280, 112, 38)) {
-        if (!pendantConnected) { probeDrawWarn(204, "! Not connected", true); return; }
-        pendantProbeV2.confirmActive = true;
-        drawProbeBoreScreen();
-        return;
-    }
+    static const PrkTouch t = { kBoreName, PB_FIELDS, 2, &PB_RESULT, "X0 Y0",
+                                runProbeBore, drawProbeBoreScreen, updateProbeBoreFields, nullptr };
+    prkHandleTouch(x, y, t);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -265,10 +187,7 @@ void handleProbeBoreTouch(int x, int y) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 void enterProbeBoss() {
-    spriteStatusBar.deleteSprite();
-    spriteAxisDisplay.deleteSprite();
-    spriteValueDisplay.deleteSprite();
-    spriteFileDisplay.deleteSprite();
+    releasePanelSprites();
     pendantProbeV2.focusedField   = 0;
     pendantProbeV2.confirmActive  = false;
     pendantProbeV2.dialAccelCount = 0;
@@ -356,203 +275,114 @@ static void runProbeBoss() {
     emitMoveCentreZero(pNum);   // sets X0 Y0; Z0 already set at the top
 }
 
-// ── Layout SCR3b ─────────────────────────────────────────────────────────────
-//   drawTitle     y=0   h=35
-//   Pos panel     y=38  h=28
-//   Seq+settings  y=70  h=130
-//   Warn          y=204 h=14
-//   Sets line     y=224 h=10
-//   Back          y=239 h=38
-//   Btn pair      y=280 h=38
+// ── Draw (boss) ──────────────────────────────────────────────────────────────
 
-// Small side-view diagram of boss probing, drawn in the left column under the
-// SEQUENCE list: a stylus touching the raised top (Z0) and inward arrows probing
-// the side walls (XY centre).
+static const NeuRect PS_SEQ    = { 10, 70, 110, 72 };
+static const NeuRect PS_DIAG   = { 10, 150, 110, 52 };
+static const NeuRect PS_RESULT = { 10, 210, 110, 40 };
+static const NeuRect PS_SHAPE  = { PRK_RX, 70, PRK_RW, 32 };
+
+// Rectangular mode splits the nominal size into X / Y size: one extra field.
+static int bossFields(NeuRect* out) {
+    if (pendantProbeV2.bossRect) {
+        for (int i = 0; i < 4; i++) out[i] = { PRK_RX, 110 + i * 36, PRK_RW, 34 };
+        return 4;
+    }
+    for (int i = 0; i < 3; i++) out[i] = { PRK_RX, 110 + i * 47, PRK_RW, 42 };
+    return 3;
+}
+
+// Top-down: round or rectangular boss with inward probe moves.
 static void drawBossDiagram() {
-    // Raised boss on the stock (cross-section).  Stylus touches the top (Z0);
-    // arrows probe inward to the side walls (XY).
-    display.fillRect(18, 196, 84, 9, PROBE_C_DIMBLUE);   // stock slab
-    display.fillRect(46, 182, 28, 14, PROBE_C_LBLUE);    // raised boss
-    // Probe body/stem + stylus touching the boss top (Z0)
-    display.fillRoundRect(55, 141, 10, 12, 2, PROBE_C_LBLUE);
-    display.drawLine(60, 152, 60, 180, PROBE_C_YELLOW);
-    display.fillCircle(60, 182, 2, PROBE_C_YELLOW);
-    display.drawLine(57, 165, 60, 169, PROBE_C_YELLOW);  // down chevron
-    display.drawLine(63, 165, 60, 169, PROBE_C_YELLOW);
-    // Side-wall probes (XY) — inward arrows
-    display.drawLine(26, 189, 44, 189, PROBE_C_GREEN);   // left shaft
-    display.drawLine(44, 189, 40, 186, PROBE_C_GREEN);   // left head
-    display.drawLine(44, 189, 40, 192, PROBE_C_GREEN);
-    display.drawLine(94, 189, 76, 189, PROBE_C_GREEN);   // right shaft
-    display.drawLine(76, 189, 80, 186, PROBE_C_GREEN);   // right head
-    display.drawLine(76, 189, 80, 192, PROBE_C_GREEN);
+    const int cx = PS_DIAG.x + 55, cy = PS_DIAG.y + 26;
+    if (pendantProbeV2.bossRect) neuFillRect(cx - 18, cy - 12, 37, 25, NEU_TEXT3);
+    else                         neuFillCircle(cx, cy, 14, NEU_TEXT3);
+    prkArrowRight(cx - 40, cy, 14, NEU_JOG);
+    prkArrowLeft(cx + 26, cy, 14, NEU_JOG);
+    neuFillCircle(cx, cy, 3, NEU_ACCENT);
 }
 
-// Top-down diagram of RECTANGULAR boss probing: the boss outline (plan view) with
-// four inward arrows probing the ±X / ±Y faces and a Z0 tick at the centre.  The
-// top-down projection (vs the circular boss's side view) is the visual cue that
-// rectangular mode is active.
-static void drawBossDiagramRect() {
-    // Boss outline (plan view), centred on (60, 175).
-    display.drawRect(40, 161, 41, 29, PROBE_C_LBLUE);
-    // Inward face-probe arrows (green), one per side, pointing at the face middle.
-    // +X (from the right, probing toward −X)
-    display.drawLine(94, 175, 83, 175, PROBE_C_GREEN);
-    display.drawLine(83, 175, 87, 172, PROBE_C_GREEN);
-    display.drawLine(83, 175, 87, 178, PROBE_C_GREEN);
-    // −X (from the left, probing toward +X)
-    display.drawLine(26, 175, 37, 175, PROBE_C_GREEN);
-    display.drawLine(37, 175, 33, 172, PROBE_C_GREEN);
-    display.drawLine(37, 175, 33, 178, PROBE_C_GREEN);
-    // +Y (from the top, probing downward)
-    display.drawLine(60, 145, 60, 158, PROBE_C_GREEN);
-    display.drawLine(60, 158, 57, 154, PROBE_C_GREEN);
-    display.drawLine(60, 158, 63, 154, PROBE_C_GREEN);
-    // −Y (from the bottom, probing upward)
-    display.drawLine(60, 205, 60, 192, PROBE_C_GREEN);
-    display.drawLine(60, 192, 57, 196, PROBE_C_GREEN);
-    display.drawLine(60, 192, 63, 196, PROBE_C_GREEN);
-    // Z0 tick at the centre (the top touch still sets Z0 first).
-    display.fillCircle(60, 175, 2, PROBE_C_YELLOW);
-    display.setTextSize(1);
-    display.setTextColor(PROBE_C_YELLOW);
-    display.setCursor(64, 172);
-    display.print("Z0");
+// Shape picker: two segments drawn as a circle and a square (no room for words at this width).
+static void drawBossShapePicker() {
+    static const char* const kBlank[2] = { "", "" };
+    const int sel = pendantProbeV2.bossRect ? 1 : 0;
+    neuClear(PS_SHAPE.x, PS_SHAPE.y, PS_SHAPE.w, PS_SHAPE.h);
+    neuSegmented(PS_SHAPE.x, PS_SHAPE.y, PS_SHAPE.w, PS_SHAPE.h, kBlank, 2, sel, 8);
+    NeuSpan segs[2];
+    neuSegLayout(PS_SHAPE.x, PS_SHAPE.w, 2, segs);
+    const int cy = PS_SHAPE.y + PS_SHAPE.h / 2;
+    const int c0 = segs[0].x + segs[0].w / 2, c1 = segs[1].x + segs[1].w / 2;
+    const uint16_t col0 = sel == 0 ? NEU_ACCENT : NEU_TEXT3, col1 = sel == 1 ? NEU_ACCENT : NEU_TEXT3;
+    neuDrawCircle(c0, cy, 7, col0);
+    neuDrawCircle(c0, cy, 6, col0);
+    neuDrawRoundRect(c1 - 7, cy - 6, 15, 13, 0, col1);
+    neuDrawRoundRect(c1 - 6, cy - 5, 13, 11, 0, col1);
 }
 
-// Redraws ONLY the boss settings fields (opaque boxes, no screen/panel clear) —
-// called by the full draw and, crucially, by the dial handler so turning the jog
-// dial updates the focused value without a flicker-inducing full-screen redraw.
+// Redraws ONLY the boss settings fields — called by the full draw and, crucially,
+// by the dial handler so turning the jog dial updates the focused value without a
+// flicker-inducing full-screen redraw.
 void updateProbeBossFields() {
     if (currentPendantScreen != PSCREEN_PROBE_BOSS) return;
-    int fo = pendantProbeV2.focusedField;
-    if (pendantProbeV2.bossRect) {
-        // 0=X size (bossDia) 1=Y size (bossSizeY) 2=Probe depth Z 3=Clearance
-        probeDrawKVTouch(122, 84,  111, 27, "X size",       pendantProbeV2.bossDia,   "mm", PROBE_C_BLUE, fo==0, 1);
-        probeDrawKVTouch(122, 113, 111, 27, "Y size",       pendantProbeV2.bossSizeY, "mm", PROBE_C_BLUE, fo==1, 1);
-        probeDrawKVTouch(122, 142, 111, 27, "Probe depth Z", pendantProbeV2.bossDepth, "mm", PROBE_C_BLUE, fo==2, 1);
-        probeDrawKVTouch(122, 171, 111, 27, "Clearance",    pendantProbeV2.bossClear, "mm", PROBE_C_BLUE, fo==3, 1);
-    } else {
-        // 0=Nominal dia. (bossDia) 1=Probe depth Z 2=Clearance
-        probeDrawKVTouch(122, 84,  111, 27, "Nominal dia.",  pendantProbeV2.bossDia,   "mm", PROBE_C_BLUE, fo==0, 1);
-        probeDrawKVTouch(122, 113, 111, 27, "Probe depth Z", pendantProbeV2.bossDepth, "mm", PROBE_C_BLUE, fo==1, 1);
-        probeDrawKVTouch(122, 142, 111, 27, "Clearance",     pendantProbeV2.bossClear, "mm", PROBE_C_BLUE, fo==2, 1);
+    const auto& p = pendantProbeV2;
+    NeuRect     F[4];
+    const int   n = bossFields(F);
+    const char* capsRect[4]  = { "X size", "Y size", "Depth", "Clearance" };
+    const float valsRect[4]  = { p.bossDia, p.bossSizeY, p.bossDepth, p.bossClear };
+    const char* capsRound[3] = { "Boss dia", "Depth", "Clearance" };
+    const float valsRound[3] = { p.bossDia, p.bossDepth, p.bossClear };
+    for (int i = 0; i < n; i++) {
+        char v[12];
+        const char*   u = prkLen(p.bossRect ? valsRect[i] : valsRound[i], 1, v, sizeof(v));
+        NeuFieldStyle o;
+        o.focus = p.focusedField == i;
+        o.font  = NEU_B9;
+        neuFieldRepaint(F[i].x, F[i].y, PRK_RW, F[i].h, p.bossRect ? capsRect[i] : capsRound[i], v, u, o);
     }
 }
 
+static const char* bossName() { return pendantProbeV2.bossRect ? "Rectangular boss" : "Round boss"; }
+
 void drawProbeBossScreen() {
-    display.fillScreen(PROBE_BG_SCREEN);
-    drawTitle("BOSS");
-    probeDrawPosPanel(38);
-
-    // Combined panel: sequence + diagram (left) / settings + result (right).
-    display.fillRoundRect(5, 70, 230, 146, 4, PROBE_BG_PANEL);
-
-    // Left: sequence + diagram
-    display.setTextSize(1);
-    display.setTextColor(PROBE_C_LBLUE);
-    display.setCursor(10, 73);
-    display.print("SEQUENCE");
-    drawSeqStep( 8, 87,  1, "Touch top->Z0",  true);
-    drawSeqStep( 8, 105, 2, "Probe 4 points", false);
-    drawSeqStep( 8, 123, 3, "Set X0 Y0",      false);
-    // Tappable diagram: a single tap cycles Circular <-> Rectangular boss.  The
-    // grey border marks it as a button (our tappable-field convention) and the
-    // diagram itself is the mode indicator, so tapping it to change shape reads
-    // naturally.  Replaces the old triple-tap on the first settings field.
-    display.drawRoundRect(6, 136, 112, 79, 3, PROBE_C_TAPBDR);
-    if (pendantProbeV2.bossRect) drawBossDiagramRect();
-    else                         drawBossDiagram();
-    display.setTextSize(1);
-    display.setTextColor(PROBE_C_LBLUE);
-    display.setCursor(10, 206);
-    display.print("Tap: shape");
-
-    // Right: KV settings (h=27 so the value isn't clipped).  Rectangular mode
-    // splits the nominal size into X-size / Y-size, so it shows one extra field.
-    display.setTextSize(1);
-    display.setTextColor(PROBE_C_LBLUE);
-    display.setCursor(122, 73);
-    display.print("SETTINGS");
-
+    static const char* const kSteps[3] = { "Touch top: Z0", "Probe 4 sides", "Set X0 Y0" };
+    neuHeader("Boss");
+    prkPosStrip(true);
+    prkSequence(kSteps, 3, PS_SEQ);
+    prkDiagramWell(PS_DIAG);
+    drawBossDiagram();
+    prkResultCard(PS_RESULT, "XYZ");
+    drawBossShapePicker();
+    NeuRect   F[4];
+    const int n = bossFields(F);
+    for (int i = 0; i < n; i++) neuInset(F[i].x, F[i].y, F[i].w, F[i].h, 8, 3);
     updateProbeBossFields();
-
-    // Result line — what axes the probe will set (below the last field)
-    {
-        const char* s = "Sets X0 Y0 Z0";
-        display.setTextSize(1);
-        display.setTextColor(PROBE_C_GREEN);
-        display.setCursor(177 - display.textWidth(s) / 2, pendantProbeV2.bossRect ? 205 : 182);
-        display.print(s);
-    }
-
-    probeDrawWarn(220, "! Start above centre of boss");
-
-    // Bottom-nav row: Back (left) | work-area selector (right)
-    drawButton(5, 239, 112, 38, "Back", PROBE_BTN_BLUE, COLOR_WHITE, 2);
-    probeDrawWorkAreaButton(123, 239, 112, 38);
-
-    drawButton(  5, 280, 112, 38, "Main Menu", PROBE_BTN_BLUE,  COLOR_WHITE, 2);
-    drawButton(123, 280, 112, 38, "Probe",     PROBE_BTN_GREEN, COLOR_WHITE, 2);
-
-    if (pendantProbeV2.confirmActive)
-        probeDrawConfirmOverlay("BOSS");
+    prkHint("Start above the boss centre");
+    neuNav(PROBE_ROUTINE_NAV, 3);
+    if (pendantProbeV2.confirmActive) prkConfirm(bossName());
 }
 
 void updateProbeBossScreen() {
-    if (currentPendantScreen != PSCREEN_PROBE_BOSS) return;
-    probeDrawPosPanel(38);
+    if (currentPendantScreen != PSCREEN_PROBE_BOSS || pendantProbeV2.confirmActive) return;
+    prkPosStrip(false);
+}
+
+// Shape picker: round <-> rectangular.  The field set changes, so a full redraw.
+static bool bossShapeTouch(int x, int y) {
+    const int seg = neuSegHit(PS_SHAPE.x, PS_SHAPE.y, PS_SHAPE.w, PS_SHAPE.h, 2, x, y);
+    if (seg < 0) return false;
+    if ((seg == 1) == pendantProbeV2.bossRect) return true;   // already that shape
+    pendantProbeV2.bossRect = seg == 1;
+    // Clamp focus to the field count of the new mode (rect=4, round=3).
+    if (pendantProbeV2.focusedField > (pendantProbeV2.bossRect ? 3 : 2)) pendantProbeV2.focusedField = -1;
+    saveProbeSettings();
+    drawProbeBossScreen();
+    return true;
 }
 
 void handleProbeBossTouch(int x, int y) {
-    if (pendantProbeV2.confirmActive) {
-        if (isTouchInBounds(x, y, 28, 175, 78, 32)) {
-            pendantProbeV2.confirmActive = false;
-            drawProbeBossScreen();
-        } else if (isTouchInBounds(x, y, 114, 175, 98, 32)) {
-            pendantProbeV2.confirmActive = false;
-            runProbeBoss();
-            currentPendantScreen = PSCREEN_STATUS;
-        }
-        return;
-    }
-
-    // Tappable diagram box — single tap cycles Circular <-> Rectangular boss.
-    if (isTouchInBounds(x, y, 6, 136, 112, 79)) {
-        pendantProbeV2.bossRect = !pendantProbeV2.bossRect;
-        // Clamp focus to the field count of the new mode (rect=4, circ=3).
-        int maxField = pendantProbeV2.bossRect ? 3 : 2;
-        if (pendantProbeV2.focusedField > maxField) pendantProbeV2.focusedField = -1;
-        saveProbeSettings();
-        drawProbeBossScreen();
-        return;
-    }
-
-    // Settings fields — tap to focus for dial editing.
-    bool redraw = false;
-    if (isTouchInBounds(x, y, 122, 84,  111, 27)) { pendantProbeV2.focusedField=(pendantProbeV2.focusedField==0)?-1:0; redraw=true; }
-    if (isTouchInBounds(x, y, 122, 113, 111, 27)) { pendantProbeV2.focusedField=(pendantProbeV2.focusedField==1)?-1:1; redraw=true; }
-    if (isTouchInBounds(x, y, 122, 142, 111, 27)) { pendantProbeV2.focusedField=(pendantProbeV2.focusedField==2)?-1:2; redraw=true; }
-    if (pendantProbeV2.bossRect &&
-        isTouchInBounds(x, y, 122, 171, 111, 27)) { pendantProbeV2.focusedField=(pendantProbeV2.focusedField==3)?-1:3; redraw=true; }
-    if (redraw) { drawProbeBossScreen(); return; }
-
-    if (isTouchInBounds(x, y, 5, 239, 112, 38)) {
-        pendantProbeV2.returnScreen  = PSCREEN_PROBE_BOSS;
-        currentPendantScreen = PSCREEN_PROBE;
-        return;
-    }
-    if (isTouchInBounds(x, y, 123, 239, 112, 38)) {
-        probeCycleWorkArea();
-        drawProbeBossScreen();
-        return;
-    }
-
-    if (isTouchInBounds(x, y, 5, 280, 112, 38)) { currentPendantScreen = PSCREEN_MAIN_MENU; return; }
-    if (isTouchInBounds(x, y, 123, 280, 112, 38)) {
-        if (!pendantConnected) { probeDrawWarn(204, "! Not connected", true); return; }
-        pendantProbeV2.confirmActive = true;
-        drawProbeBossScreen();
-        return;
-    }
+    NeuRect   F[4];
+    const int n = bossFields(F);
+    PrkTouch  t = { bossName(), F, n, &PS_RESULT, "XYZ",
+                    runProbeBoss, drawProbeBossScreen, updateProbeBossFields, bossShapeTouch };
+    prkHandleTouch(x, y, t);
 }

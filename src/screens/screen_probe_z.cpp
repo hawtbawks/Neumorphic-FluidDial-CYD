@@ -1,5 +1,6 @@
 /*
- * screen_probe_z.cpp  —  SCR1: Z Surface Probe
+ * screen_probe_z.cpp  —  SCR1: Z Surface Probe, neumorphic layout
+ * (spec: simulator/js/screens/probe_z.js, layout from the probe kit)
  *
  * Probes Z only, using the selected probe type (3D probe or touch plate).
  * G-code generated internally:
@@ -20,17 +21,19 @@
 #include "screen_probe.h"
 #include "screen_probe_z.h"
 
+static const NeuRect PZ_FIELDS[2] = { { PRK_RX, 70, PRK_RW, 46 }, { PRK_RX, 124, PRK_RW, 46 } };
+static const NeuRect PZ_RESULT    = { PRK_RX, 178, PRK_RW, 72 };
+
 void enterProbeZ() {
-    spriteStatusBar.deleteSprite();
-    spriteAxisDisplay.deleteSprite();
-    spriteValueDisplay.deleteSprite();
-    spriteFileDisplay.deleteSprite();
+    releasePanelSprites();
     pendantProbeV2.focusedField   = 0;
     pendantProbeV2.confirmActive  = false;
     pendantProbeV2.dialAccelCount = 0;
 }
 
-void exitProbeZ() {}
+void exitProbeZ() {
+    pendantProbeV2.focusedField = -1;
+}
 
 // ── G-code execution ─────────────────────────────────────────────────────────
 
@@ -60,179 +63,50 @@ static void runProbeZ() {
     send_line("G90");
 }
 
-// ── Layout ───────────────────────────────────────────────────────────────────
-//   drawTitle           y=0   h=35
-//   Pos panel           y=38  h=38
-//   Param buttons       y=79  h=38  (Max Z travel | Retract dist, equal width)
-//   Sets row            y=120 h=38
-//   Warn banner         y=198 h=38
-//   Settings link       y=239 h=38
-//   Btn pair            y=280 h=38
+// ── Draw ─────────────────────────────────────────────────────────────────────
 
-// Shared helper — draws one of the two param buttons (tap-to-focus, dial-adjustable).
-// Value displayed in mm or inch equiv; steps are always whole-mm via the dial handler.
-static void drawZParamButton(int x, int y, int w, int h,
-                              const char* label, float valueMm, bool focused) {
-    bool inInch = pendantMachine.inInches;
-    uint16_t bg  = focused ? PROBE_SEL_BG   : PROBE_BG_SCREEN;
-    uint16_t bdr = focused ? PROBE_C_YELLOW : PROBE_C_TAPBDR;
-    uint16_t vc  = focused ? PROBE_C_YELLOW : PROBE_C_BLUE;
-    display.fillRoundRect(x, y, w, h, 8, bg);
-    display.drawRoundRect(x, y, w, h, 8, bdr);
-
-    // Label (small, vertically centred in top half)
-    display.setTextSize(1);
-    display.setTextColor(focused ? COLOR_WHITE : PROBE_C_LBLUE);
-    int16_t lw = display.textWidth(label);
-    display.setCursor(x + (w - lw) / 2, y + 5);
-    display.print(label);
-
-    // Value (large, bottom)
-    char valBuf[16];
-    if (inInch)
-        snprintf(valBuf, sizeof(valBuf), "%.3f in", valueMm / 25.4f);
-    else
-        snprintf(valBuf, sizeof(valBuf), "%.0f mm", valueMm);
-    display.setTextSize(2);
-    display.setTextColor(vc);
-    int16_t vw = display.textWidth(valBuf);
-    display.setCursor(x + (w - vw) / 2, y + 17);
-    display.print(valBuf);
-}
-
-// Side-view diagram of a Z-surface probe: stylus descending onto the work
-// surface, with a down arrow showing the probe direction.
-static void drawZDiagram() {
-    display.fillRect(22, 192, 76, 10, PROBE_C_DIMBLUE);   // work surface
-    display.fillRoundRect(55, 150, 10, 12, 2, PROBE_C_LBLUE);  // probe body/stem
-    display.drawLine(60, 161, 60, 189, PROBE_C_YELLOW);   // stylus
-    display.fillCircle(60, 191, 2, PROBE_C_YELLOW);       // ball touching surface
-    // Probe direction (down arrow beside the stylus)
-    display.drawLine(42, 166, 42, 184, PROBE_C_GREEN);    // shaft
-    display.drawLine(42, 184, 39, 180, PROBE_C_GREEN);    // head
-    display.drawLine(42, 184, 45, 180, PROBE_C_GREEN);
-}
-
-// Redraws ONLY the Z-Surface settings fields (opaque boxes) — used by the full
-// draw and the dial handler so a jog-dial edit doesn't do a full-screen redraw.
+// Redraws ONLY the Z-Surface settings fields — used by the full draw and the dial
+// handler so a jog-dial edit doesn't do a full-screen redraw.  Whole mm (or the
+// inch equivalent): the dial steps these in 1 mm.
 void updateProbeZFields() {
     if (currentPendantScreen != PSCREEN_PROBE_Z) return;
-    int fo = pendantProbeV2.focusedField;
-    drawZParamButton(122, 84,  111, 33, "Max Z travel", pendantProbeV2.maxZTravel,  fo==0);
-    drawZParamButton(122, 120, 111, 33, "Retract dist", pendantProbeV2.retractDist, fo==1);
+    const int fo = pendantProbeV2.focusedField;
+    char a[12], b[12];
+    const char* ua = prkLen(pendantProbeV2.maxZTravel, 0, a, sizeof(a));
+    const char* ub = prkLen(pendantProbeV2.retractDist, 0, b, sizeof(b));
+    NeuFieldStyle o;
+    o.focus = fo == 0;
+    neuFieldRepaint(PZ_FIELDS[0].x, PZ_FIELDS[0].y, PRK_RW, 46, "Max travel", a, ua, o);
+    o.focus = fo == 1;
+    neuFieldRepaint(PZ_FIELDS[1].x, PZ_FIELDS[1].y, PRK_RW, 46, "Retract", b, ub, o);
 }
 
 void drawProbeZScreen() {
-    display.fillScreen(PROBE_BG_SCREEN);
-    drawTitle("Z SURFACE");
-    probeDrawPosPanel(38);
-
-    // Combined panel: sequence + diagram (left) / settings (right) — boss style.
-    display.fillRoundRect(5, 70, 230, 146, 4, PROBE_BG_PANEL);
-
-    // Left column: sequence + diagram
-    display.setTextSize(1);
-    display.setTextColor(PROBE_C_LBLUE);
-    display.setCursor(10, 73);
-    display.print("SEQUENCE");
-    drawSeqStep( 8, 87,  1, "Fast seek -Z",  true);
-    drawSeqStep( 8, 105, 2, "Slow re-probe", false);
-    drawSeqStep( 8, 123, 3, "Set Z0",        false);
-    drawZDiagram();
-
-    // Right column: settings
-    display.setTextSize(1);
-    display.setTextColor(PROBE_C_LBLUE);
-    display.setCursor(122, 73);
-    display.print("SETTINGS");
+    static const char* const kSteps[3] = { "Fast seek -Z", "Slow probe", "Set Z0" };
+    neuHeader("Z Surface");
+    prkPosStrip(true);
+    prkSequence(kSteps, 3);
+    prkDiagramWell();
+    // Side view: the work (and the plate on it), the probe tip on top, probe direction.
+    neuFillRect(22, 228, 86, 14, NEU_TEXT3);
+    if (!probeIs3D()) neuFillRect(40, 222, 50, 6, NEU_ACCENT);   // the plate
+    prkProbeTool(65, probeIs3D() ? 228 : 222, 24);
+    prkArrowDown(36, 186, 26, NEU_JOG);
+    for (const NeuRect& f : PZ_FIELDS) neuInset(f.x, f.y, f.w, f.h, 8, 3);
     updateProbeZFields();
-
-    // Result line — what the probe will set
-    {
-        const char* s = "Sets Z0";
-        display.setTextSize(1);
-        display.setTextColor(PROBE_C_GREEN);
-        display.setCursor(177 - display.textWidth(s) / 2, 166);
-        display.print(s);
-    }
-
-    // Warning — same height/placement as the Boss screen (type-aware).
-    probeDrawWarn(220, probeIs3D() ? "! Verify probe is connected"
-                                   : "! Verify plate clip is connected");
-
-    // Bottom-nav row: Back (left) | work-area selector (right)
-    drawButton(5, 239, 112, 38, "Back", PROBE_BTN_BLUE, COLOR_WHITE, 2);
-    probeDrawWorkAreaButton(123, 239, 112, 38);
-
-    // Bottom buttons: Main Menu | Probe
-    drawButton(  5, 280, 112, 38, "Main Menu", PROBE_BTN_BLUE,  COLOR_WHITE, 2);
-    drawButton(123, 280, 112, 38, "Probe",     PROBE_BTN_GREEN, COLOR_WHITE, 2);
-
-    if (pendantProbeV2.confirmActive)
-        probeDrawConfirmOverlay("Z SURFACE");
+    prkResultCard(PZ_RESULT, "Z0");
+    prkHint(probeIs3D() ? "Probe connected?" : "Plate clip connected?");
+    neuNav(PROBE_ROUTINE_NAV, 3);
+    if (pendantProbeV2.confirmActive) prkConfirm("Z Surface");
 }
 
 void updateProbeZScreen() {
-    if (currentPendantScreen != PSCREEN_PROBE_Z) return;
-    probeDrawPosPanel(38);
+    if (currentPendantScreen != PSCREEN_PROBE_Z || pendantProbeV2.confirmActive) return;
+    prkPosStrip(false);
 }
 
 void handleProbeZTouch(int x, int y) {
-    // Confirm overlay
-    if (pendantProbeV2.confirmActive) {
-        if (isTouchInBounds(x, y, 28, 175, 78, 32)) {
-            // CANCEL
-            pendantProbeV2.confirmActive = false;
-            drawProbeZScreen();
-        } else if (isTouchInBounds(x, y, 114, 175, 98, 32)) {
-            // CONFIRM — run probe
-            pendantProbeV2.confirmActive = false;
-            runProbeZ();
-            currentPendantScreen = PSCREEN_STATUS;
-        }
-        return;
-    }
-
-    // Max Z travel — tap to focus/unfocus
-    if (isTouchInBounds(x, y, 122, 84, 111, 33)) {
-        pendantProbeV2.focusedField = (pendantProbeV2.focusedField == 0) ? -1 : 0;
-        drawProbeZScreen();
-        return;
-    }
-    // Retract dist — tap to focus/unfocus
-    if (isTouchInBounds(x, y, 122, 120, 111, 33)) {
-        pendantProbeV2.focusedField = (pendantProbeV2.focusedField == 1) ? -1 : 1;
-        drawProbeZScreen();
-        return;
-    }
-
-    // Back → config hub
-    if (isTouchInBounds(x, y, 5, 239, 112, 38)) {
-        pendantProbeV2.returnScreen   = PSCREEN_PROBE_Z;
-        currentPendantScreen = PSCREEN_PROBE;
-        return;
-    }
-    // Work-area selector → cycle G54..G57
-    if (isTouchInBounds(x, y, 123, 239, 112, 38)) {
-        probeCycleWorkArea();
-        drawProbeZScreen();
-        return;
-    }
-
-    // Main Menu
-    if (isTouchInBounds(x, y, 5, 280, 112, 38)) {
-        currentPendantScreen = PSCREEN_MAIN_MENU;
-        return;
-    }
-
-    // Probe button → confirm overlay
-    if (isTouchInBounds(x, y, 123, 280, 112, 38)) {
-        if (!pendantConnected) {
-            probeDrawWarn(220, "! Not connected", true);
-            return;
-        }
-        pendantProbeV2.confirmActive = true;
-        drawProbeZScreen();
-        return;
-    }
+    static const PrkTouch t = { "Z Surface", PZ_FIELDS, 2, &PZ_RESULT, "Z0",
+                                runProbeZ, drawProbeZScreen, updateProbeZFields, nullptr };
+    prkHandleTouch(x, y, t);
 }

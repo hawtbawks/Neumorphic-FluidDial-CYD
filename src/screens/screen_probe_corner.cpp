@@ -1,11 +1,13 @@
 /*
- * screen_probe_corner.cpp  —  SCR2: XYZ Corner Probe
+ * screen_probe_corner.cpp  —  SCR2: XYZ Corner Probe, neumorphic layout
+ * (spec: simulator/js/screens/probe_corner.js, layout from the probe kit)
+ *   left: sequence, top-down diagram of the chosen corner, result card (tap = next WCS)
+ *   right: 2x2 corner picker laid out like the corners, then depth / overshoot / XY retract
  *
- * Probes the X, Y, and/or Z axes of a workpiece corner.
+ * Probes the X, Y and Z axes of a workpiece corner.
  * User pre-positions probe above the corner edge.
  *
  * Corner options (cornerIdx): 0=Bot-Left  1=Bot-Right  2=Top-Left  3=Top-Right
- * Axes options  (axesIdx):    0=X+Y+Z     1=X+Y        2=Z
  *
  * focusedField: 0=cornerDepth  1=cornerOver  2=cornerRetXY
  *
@@ -20,10 +22,7 @@
 #include "screen_probe_corner.h"
 
 void enterProbeCorner() {
-    spriteStatusBar.deleteSprite();
-    spriteAxisDisplay.deleteSprite();
-    spriteValueDisplay.deleteSprite();
-    spriteFileDisplay.deleteSprite();
+    releasePanelSprites();
     pendantProbeV2.focusedField   = 0;
     pendantProbeV2.confirmActive  = false;
     pendantProbeV2.dialAccelCount = 0;
@@ -137,153 +136,122 @@ static void runProbeCorner() {
     }
 }
 
-// ── Draw helpers ─────────────────────────────────────────────────────────────
+// ── Draw ─────────────────────────────────────────────────────────────────────
 
-static const char* cornerLabels[] = { "Bot-Left", "Bot-Right", "Top-Left", "Top-Right" };
+static const char* const cornerLabels[4] = { "Bot-Left", "Bot-Right", "Top-Left", "Top-Right" };
 
-// Top-down diagram of corner probing: a workpiece corner with arrows probing the
-// X and Y edges, and a dot marking the found corner.
-static void drawCornerDiagram() {
-    display.fillRect(20, 182, 38, 22, PROBE_C_DIMBLUE);   // workpiece (corner top-right)
-    // Probe body/stem + stylus descending onto the corner
-    display.fillRoundRect(53, 141, 10, 12, 2, PROBE_C_LBLUE);
-    display.drawLine(58, 152, 58, 180, PROBE_C_YELLOW);
-    display.fillCircle(58, 182, 2, PROBE_C_YELLOW);       // probe ball at the corner
-    // X probe → toward the right edge
-    display.drawLine(80, 192, 61, 192, PROBE_C_GREEN);
-    display.drawLine(61, 192, 65, 189, PROBE_C_GREEN);
-    display.drawLine(61, 192, 65, 195, PROBE_C_GREEN);
-    // Y probe → toward the top edge
-    display.drawLine(40, 164, 40, 177, PROBE_C_GREEN);
-    display.drawLine(40, 177, 37, 173, PROBE_C_GREEN);
-    display.drawLine(40, 177, 43, 173, PROBE_C_GREEN);
+// 2x2 picker laid out like the corners themselves: top row TL TR, bottom row BL BR.
+struct CornerCell { int idx; const char* label; };
+static const CornerCell CORNER_GRID[4] = { { 2, "TL" }, { 3, "TR" }, { 0, "BL" }, { 1, "BR" } };   // drawing order
+
+static const NeuRect PC_PICK      = { PRK_RX, 70, PRK_RW, 46 };
+static const NeuRect PC_FIELDS[3] = { { PRK_RX, 124, PRK_RW, 38 }, { PRK_RX, 168, PRK_RW, 38 }, { PRK_RX, 212, PRK_RW, 38 } };
+static const NeuRect PC_SEQ       = { 10, 70, 110, 72 };
+static const NeuRect PC_DIAG      = { 10, 150, 110, 52 };
+static const NeuRect PC_RESULT    = { 10, 210, 110, 40 };
+
+static NeuRect cornerCell(int k) { return { PC_PICK.x + 5 + (k % 2) * 47, PC_PICK.y + 5 + (k >> 1) * 19, 45, 17 }; }
+
+static void drawCornerPicker() {
+    neuInset(PC_PICK.x, PC_PICK.y, PC_PICK.w, PC_PICK.h, 10, 3);
+    for (int k = 0; k < 4; k++) {
+        const NeuRect c  = cornerCell(k);
+        const bool    on = CORNER_GRID[k].idx == pendantProbeV2.cornerIdx;
+        if (on) neuRaised(c.x, c.y, c.w, c.h, 6, 1);
+        neuSmall(CORNER_GRID[k].label, c.x + c.w / 2, c.y + 5, on ? NEU_ACCENT : NEU_TEXT3, NEU_CENTER);
+    }
 }
 
-// Layout (boss style):
-//   drawTitle    y=0   h=35
-//   Pos panel    y=38  h=28
-//   Combined     y=70  h=146  (left: sequence+diagram / right: settings)
-//   Warn         y=220 h=14
-//   Back         y=239 h=38
-//   Btn pair     y=280 h=38
+// Top-down view (screen up = +Y): stock, the chosen corner, and the probe
+// approaching both edges.  Repainted through the panel sprite when the corner changes.
+static void drawCornerDiagram() {
+    const int  x = PC_DIAG.x, y = PC_DIAG.y, ci = pendantProbeV2.cornerIdx;
+    const bool stockRight = ci == 0 || ci == 2;   // BL / TL: stock lies to +X of the corner
+    const bool stockUp    = ci == 0 || ci == 1;   // BL / BR: stock lies to +Y (screen up)
+    const int  bx = stockRight ? x + 52 : x + 12, by = stockUp ? y + 8 : y + 22;
+    neuPanelBegin(x + 4, y + 4, PC_DIAG.w - 7, PC_DIAG.h - 7);
+    neuFillRect(x + 4, y + 4, PC_DIAG.w - 7, PC_DIAG.h - 7, NEU_WELL);
+    neuFillRect(bx, by, 46, 22, NEU_TEXT3);
+    const int cx = stockRight ? bx : bx + 45, cy = stockUp ? by + 21 : by;
+    // X approach along the stock's mid-height, from outside the corner side
+    const int my = by + 10;
+    if (stockRight) prkArrowRight(cx - 20, my, 14, NEU_JOG);
+    else            prkArrowLeft(cx + 6, my, 14, NEU_JOG);
+    // Y approach along the stock's mid-width
+    const int mx = bx + 22;
+    if (stockUp) {
+        neuFillRect(mx, cy + 5, 2, 9, NEU_JOG);
+        for (int i = 0; i < 4; i++) neuFillRect(mx - 3 + i, cy + 4 - i + 1, 8 - 2 * i, 1, NEU_JOG);
+    } else {
+        neuFillRect(mx, cy - 14, 2, 9, NEU_JOG);
+        for (int i = 0; i < 4; i++) neuFillRect(mx - 3 + i, cy - 6 + i, 8 - 2 * i, 1, NEU_JOG);
+    }
+    neuFillCircle(cx, cy, 3, NEU_ACCENT);
+    neuPanelEnd();
+}
 
-// Redraws ONLY the corner settings fields (opaque boxes) — used by the full draw
-// and the dial handler so a jog-dial edit doesn't do a full-screen redraw.
+// Redraws ONLY the corner settings fields — used by the full draw and the dial
+// handler so a jog-dial edit doesn't do a full-screen redraw.  1 decimal: the
+// dial steps these in 0.1 mm.
 void updateProbeCornerFields() {
     if (currentPendantScreen != PSCREEN_PROBE_CORNER) return;
-    int fo = pendantProbeV2.focusedField;
-    // 1 decimal — the dial steps these in 0.1 mm (see updateProbeSharedFields).
-    probeDrawKVTouch(122, 117, 111, 31, "Probe depth", pendantProbeV2.cornerDepth, "mm", PROBE_C_BLUE, fo==0, 1);
-    probeDrawKVTouch(122, 150, 111, 31, "Overshoot",   pendantProbeV2.cornerOver,  "mm", PROBE_C_BLUE, fo==1, 1);
-    probeDrawKVTouch(122, 183, 111, 31, "XY retract",  pendantProbeV2.cornerRetXY, "mm", PROBE_C_BLUE, fo==2, 1);
+    const auto& p  = pendantProbeV2;
+    const char* caps[3] = { "Depth", "Overshoot", "XY retract" };
+    const float vals[3] = { p.cornerDepth, p.cornerOver, p.cornerRetXY };
+    for (int i = 0; i < 3; i++) {
+        char v[12];
+        const char*   u = prkLen(vals[i], 1, v, sizeof(v));
+        NeuFieldStyle o;
+        o.focus = p.focusedField == i;
+        o.font  = NEU_B9;
+        neuFieldRepaint(PC_FIELDS[i].x, PC_FIELDS[i].y, PRK_RW, 38, caps[i], v, u, o);
+    }
+}
+
+static const char* confirmName() {
+    static char buf[32];
+    snprintf(buf, sizeof(buf), "XYZ Corner, %s", cornerLabels[pendantProbeV2.cornerIdx]);
+    return buf;
 }
 
 void drawProbeCornerScreen() {
-    display.fillScreen(PROBE_BG_SCREEN);
-    drawTitle("XYZ CORNER");
-    probeDrawPosPanel(38);
-
-    display.fillRoundRect(5, 70, 230, 146, 4, PROBE_BG_PANEL);
-
-    // Left column: sequence + diagram
-    display.setTextSize(1);
-    display.setTextColor(PROBE_C_LBLUE);
-    display.setCursor(10, 73);
-    display.print("SEQUENCE");
-    drawSeqStep( 8, 87,  1, "Touch top->Z0", true);
-    drawSeqStep( 8, 105, 2, "Probe X & Y",   false);
-    drawSeqStep( 8, 123, 3, "Set X0 Y0 Z0",  false);
+    static const char* const kSteps[3] = { "Touch top: Z0", "Probe X & Y", "Set X0 Y0" };
+    neuHeader("XYZ Corner");
+    prkPosStrip(true);
+    prkSequence(kSteps, 3, PC_SEQ);
+    prkDiagramWell(PC_DIAG);
     drawCornerDiagram();
-
-    // Right column: settings
-    display.setTextSize(1);
-    display.setTextColor(PROBE_C_LBLUE);
-    display.setCursor(122, 73);
-    display.print("SETTINGS");
-
-    // Corner selector (tap to cycle) — top of the right column, drawn in the
-    // shared tappable-field style (TAPBDR border; yellow is reserved for focus).
-    // The result line was removed: sequence step 3 already reads "Set X0 Y0 Z0",
-    // freeing the space so all four controls get taller, evenly spaced targets.
-    display.fillRoundRect(122, 84, 111, 31, 2, PROBE_BG_SCREEN);
-    display.drawRoundRect(122, 84, 111, 31, 2, PROBE_C_TAPBDR);
-    display.setTextColor(PROBE_C_LBLUE);
-    display.setCursor(125, 87);
-    display.print("CORNER");
-    display.setTextColor(PROBE_C_BLUE);
-    display.setCursor(125, 101);
-    display.print(cornerLabels[pendantProbeV2.cornerIdx]);
-
+    prkResultCard(PC_RESULT, "XYZ");
+    drawCornerPicker();
+    for (const NeuRect& f : PC_FIELDS) neuInset(f.x, f.y, f.w, f.h, 8, 3);
     updateProbeCornerFields();
-
-    probeDrawWarn(220, "! Position probe above corner edge");
-
-    // Bottom-nav row: Back (left) | work-area selector (right)
-    drawButton(5, 239, 112, 38, "Back", PROBE_BTN_BLUE, COLOR_WHITE, 2);
-    probeDrawWorkAreaButton(123, 239, 112, 38);
-
-    drawButton(  5, 280, 112, 38, "Main Menu", PROBE_BTN_BLUE,  COLOR_WHITE, 2);
-    drawButton(123, 280, 112, 38, "Probe",     PROBE_BTN_GREEN, COLOR_WHITE, 2);
-
-    if (pendantProbeV2.confirmActive)
-        probeDrawConfirmOverlay("XYZ CORNER");
+    prkHint("Probe above the corner");
+    neuNav(PROBE_ROUTINE_NAV, 3);
+    if (pendantProbeV2.confirmActive) prkConfirm(confirmName());
 }
 
 void updateProbeCornerScreen() {
-    if (currentPendantScreen != PSCREEN_PROBE_CORNER) return;
-    probeDrawPosPanel(38);
+    if (currentPendantScreen != PSCREEN_PROBE_CORNER || pendantProbeV2.confirmActive) return;
+    prkPosStrip(false);
+}
+
+// Corner picker: a tap on a cell picks that corner (and redraws the diagram).
+static bool cornerPickerTouch(int x, int y) {
+    if (!isTouchInBounds(x, y, PC_PICK.x, PC_PICK.y, PC_PICK.w, PC_PICK.h)) return false;
+    for (int k = 0; k < 4; k++) {
+        const NeuRect c = cornerCell(k);
+        if (isTouchInBounds(x, y, c.x - 1, c.y - 1, c.w + 2, c.h + 2)) {
+            pendantProbeV2.cornerIdx = CORNER_GRID[k].idx;
+            drawCornerPicker();
+            drawCornerDiagram();
+            return true;
+        }
+    }
+    return true;   // the well between cells does nothing
 }
 
 void handleProbeCornerTouch(int x, int y) {
-    if (pendantProbeV2.confirmActive) {
-        if (isTouchInBounds(x, y, 28, 175, 78, 32)) {
-            pendantProbeV2.confirmActive = false;
-            drawProbeCornerScreen();
-        } else if (isTouchInBounds(x, y, 114, 175, 98, 32)) {
-            pendantProbeV2.confirmActive = false;
-            runProbeCorner();
-            currentPendantScreen = PSCREEN_STATUS;
-        }
-        return;
-    }
-
-    // CORNER cycle button (top of right column)
-    if (isTouchInBounds(x, y, 122, 84, 111, 31)) {
-        pendantProbeV2.cornerIdx = (pendantProbeV2.cornerIdx + 1) % 4;
-        drawProbeCornerScreen();
-        return;
-    }
-
-    // KV fields (right column)
-    bool redraw = false;
-    if (isTouchInBounds(x, y, 122, 117, 111, 31)) { pendantProbeV2.focusedField = (pendantProbeV2.focusedField==0)?-1:0; redraw=true; }
-    if (isTouchInBounds(x, y, 122, 150, 111, 31)) { pendantProbeV2.focusedField = (pendantProbeV2.focusedField==1)?-1:1; redraw=true; }
-    if (isTouchInBounds(x, y, 122, 183, 111, 31)) { pendantProbeV2.focusedField = (pendantProbeV2.focusedField==2)?-1:2; redraw=true; }
-    if (redraw) { drawProbeCornerScreen(); return; }
-
-    // Back → config hub
-    if (isTouchInBounds(x, y, 5, 239, 112, 38)) {
-        pendantProbeV2.returnScreen  = PSCREEN_PROBE_CORNER;
-        currentPendantScreen = PSCREEN_PROBE;
-        return;
-    }
-    // Work-area selector → cycle G54..G57
-    if (isTouchInBounds(x, y, 123, 239, 112, 38)) {
-        probeCycleWorkArea();
-        drawProbeCornerScreen();
-        return;
-    }
-
-    // Main Menu
-    if (isTouchInBounds(x, y, 5, 280, 112, 38)) {
-        currentPendantScreen = PSCREEN_MAIN_MENU;
-        return;
-    }
-    // Probe
-    if (isTouchInBounds(x, y, 123, 280, 112, 38)) {
-        if (!pendantConnected) { probeDrawWarn(220, "! Not connected", true); return; }
-        pendantProbeV2.confirmActive = true;
-        drawProbeCornerScreen();
-        return;
-    }
+    PrkTouch t = { confirmName(), PC_FIELDS, 3, &PC_RESULT, "XYZ",
+                   runProbeCorner, drawProbeCornerScreen, updateProbeCornerFields, cornerPickerTouch };
+    prkHandleTouch(x, y, t);
 }

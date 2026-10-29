@@ -1,78 +1,61 @@
 /*
- * screen_probe_cfg.cpp  —  Probe Config screens (title: "Probe Config")
+ * screen_probe_cfg.cpp  —  SCR0a 3D probe setup / SCR0b touch plate setup, neumorphic layout
+ * (spec: simulator/js/screens/probe_cfg.js)
  *
- * CFG_3D  (3D Touch Probe):   Ball dia · Stylus length · Deflection · Pre-travel
- * CFG_PLATE (touch plate), field set chosen by the selected plate type:
- *   Z-Height Touch Plate → Thickness
- *   XYZ Touch Plate      → Thickness · Width · XY offset X · XY offset Y
- *
- * Both share:
- *   Setup → returns to the probe hub without saving
- *   Save  → writes NVS, returns to the hub
- * The selected probe type is shown in the panel, so the title stays generic.
+ * Plate setup (type comes from the probe hub):
+ *   Z plate    one large thickness field + dimensioned side view
+ *   XYZ plate  2x2 fields (thickness, width, X/Y wall offsets) + plan view
+ * 3D probe setup:
+ *   stylus     ball diameter + deflection fields
+ *   deflection calibration: gauge width field + Calibrate (confirm, progress, result dialogs)
+ * nav  Home | Back (to the hub, unsaved) | Save
  */
 
 #include "pendant_shared.h"
 #include "screen_probe.h"
 #include "screen_probe_cfg.h"
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  Probe-type illustrations
-// ──────────────────────────────────────────────────────────────────────────────
-// Simple schematic drawings so each config screen visually conveys its probe
-// type.  Each fills the free area below the field panels with a bordered card.
-// Only primitives shared with the JS simulator are used (rects/lines/circles —
-// no triangles), so firmware and simulator stay pixel-identical.
-
-static const int kGfxCX = 120;   // horizontal centre of all illustrations
-
-// 3D touch probe: spindle body + stylus + ruby ball touching a work surface.
-// Compact form so it fits the space left below the deflection-cal panel (y188+).
-static void drawProbe3DGraphic() {
-    const int cx = kGfxCX;
-    display.fillRoundRect(5, 188, 230, 82, 4, PROBE_BG_PANEL);
-    display.fillRect(cx - 7, 194, 14, 8, PROBE_C_DIMBLUE);            // collet/shank
-    display.fillRoundRect(cx - 17, 202, 34, 18, 4, COLOR_GRAY_TEXT); // probe body
-    display.drawFastVLine(cx - 1, 220, 24, PROBE_C_LBLUE);           // stylus (3px)
-    display.drawFastVLine(cx,     220, 24, PROBE_C_LBLUE);
-    display.drawFastVLine(cx + 1, 220, 24, PROBE_C_LBLUE);
-    display.fillCircle(cx, 247, 5, PROBE_C_RED);                     // ruby ball
-    display.drawFastHLine(cx - 50, 255, 100, COLOR_GRAY_TEXT);       // work surface
-    for (int i = 0; i < 7; i++)
-        display.drawLine(cx - 46 + i * 14, 255, cx - 52 + i * 14, 261, PROBE_C_DIMBLUE);
+static bool cfgNavTouch(int x, int y) {
+    switch (neuNavHit(PROBE_CFG_NAV, 3, x, y)) {
+    case NAV_ID_HOME:
+        currentPendantScreen = PSCREEN_MAIN_MENU;
+        return true;
+    case NAV_ID_BACK:   // return to the hub without saving
+        currentPendantScreen = PSCREEN_PROBE;
+        return true;
+    case PRK_NAV_SAVE:  // persist + return to the hub
+        saveProbeSettings();
+        currentPendantScreen = PSCREEN_PROBE;
+        return true;
+    }
+    return false;
 }
 
-// Z-height touch plate: tool descending onto a flat plate sitting on the stock.
-static void drawPlateZGraphic() {
-    const int cx = kGfxCX;
-    display.fillRoundRect(5, 128, 230, 142, 4, PROBE_BG_PANEL);
-    display.fillRect(cx - 45, 206, 90, 32, COLOR_BUTTON_GRAY);  // workpiece
-    display.fillRect(cx - 55, 194, 110, 12, PROBE_C_BLUE);      // touch plate (top)
-    display.fillRect(cx - 7, 164, 14, 30, COLOR_GRAY_TEXT);     // tool
-}
-
-// XYZ touch plate: L-shaped corner block wrapping the top-left corner of stock.
-static void drawPlateXYZGraphic() {
-    const int cx = kGfxCX;
-    display.fillRoundRect(5, 170, 230, 100, 4, PROBE_BG_PANEL);
-    display.fillRect(cx - 28, 213, 90, 43, COLOR_BUTTON_GRAY);  // workpiece block
-    display.fillRect(cx - 40, 203, 78, 10, PROBE_C_BLUE);       // plate — top arm
-    display.fillRect(cx - 40, 203, 10, 53, PROBE_C_BLUE);       // plate — left arm
-    display.fillRect(cx - 10, 180, 12, 23, COLOR_GRAY_TEXT);    // tool
+static bool cfgFieldTouch(const NeuRect* fields, int n, int x, int y, void (*redrawFields)()) {
+    for (int i = 0; i < n; i++) {
+        if (isTouchInBounds(x, y, fields[i].x, fields[i].y, fields[i].w, fields[i].h)) {
+            pendantProbeV2.focusedField = pendantProbeV2.focusedField == i ? -1 : i;
+            redrawFields();
+            return true;
+        }
+    }
+    return false;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  SCR0a — 3D PROBE CONFIG
+//  SCR0a — 3D PROBE SETUP
 // ══════════════════════════════════════════════════════════════════════════════
 
-// focusedField mapping for SCR0a:
-//   0 = ball dia   1 = deflection   2 = gauge width (deflection-cal reference)
+// focusedField: 0 = ball dia   1 = deflection   2 = gauge width (deflection-cal reference)
+static const NeuRect P3_FIELDS[3] = { { 10, 52, 106, 44 }, { 124, 52, 106, 44 }, { 10, 120, 106, 44 } };
+static const NeuRect P3_CAL       = { 124, 120, 106, 44 };
+static const NeuRect P3_DIAG      = { 10, 174, 220, 96 };
+
+// calState: 0 idle, 4 confirm, 1 running, 2 result, 3 failed — the dialog shown.
+static NeuDialogRects s_calDialog;
 
 void enterProbeCfg3D() {
-    spriteStatusBar.deleteSprite();
-    spriteAxisDisplay.deleteSprite();
-    spriteValueDisplay.deleteSprite();
-    spriteFileDisplay.deleteSprite();
+    releasePanelSprites();
     pendantProbeV2.focusedField   = 0;   // default focus on ball dia
     pendantProbeV2.confirmActive  = false;
     pendantProbeV2.dialAccelCount = 0;
@@ -80,116 +63,73 @@ void enterProbeCfg3D() {
     g_calCapture                  = false;
 }
 
-void exitProbeCfg3D() { g_calCapture = false; }
+void exitProbeCfg3D() {
+    g_calCapture = false;
+    pendantProbeV2.focusedField = -1;
+}
 
-// ── Deflection-calibration overlays ──────────────────────────────────────────
-// buttons: 0 = none (busy), 1 = single OK (dismiss), 2 = CANCEL + affirmative
-static void drawCalOverlay(const char* l1, const char* l2, uint16_t l2col, int buttons,
-                           const char* okLabel = "APPLY") {
-    display.fillRoundRect(20, 100, 200, 120, 8, PROBE_BG_PANEL);
-    display.drawRoundRect(20, 100, 200, 120, 8, PROBE_C_YELLOW);
-    display.setTextSize(1);
-    display.setTextColor(PROBE_C_YELLOW);
-    int16_t w1 = display.textWidth(l1);
-    display.setCursor(120 - w1 / 2, 118);
-    display.print(l1);
-    display.setTextSize(2);
-    display.setTextColor(l2col);
-    int16_t w2 = display.textWidth(l2);
-    display.setCursor(120 - w2 / 2, 140);   // centre the size-2 line
-    display.print(l2);
-    display.setTextSize(2);
-    display.setTextColor(COLOR_WHITE);
-    if (buttons == 2) {
-        display.fillRoundRect(28,  175, 78, 32, 5, COLOR_BUTTON_GRAY);   // CANCEL
-        display.fillRoundRect(114, 175, 98, 32, 5, PROBE_BTN_GREEN);     // affirmative
-        display.setCursor(36, 183);  display.print("CANCEL");
-        int16_t aw = display.textWidth(okLabel);
-        display.setCursor(114 + (98 - aw) / 2, 183);  display.print(okLabel);
-    } else if (buttons == 1) {
-        display.fillRoundRect(71, 175, 98, 32, 5, PROBE_BTN_BLUE);       // OK / dismiss
-        int16_t ow = display.textWidth("OK");
-        display.setCursor(71 + (98 - ow) / 2, 183);  display.print("OK");
+// Redraws ONLY the 3D-setup fields — used by the full draw and the dial handler
+// so a jog-dial edit doesn't do a full-screen redraw.  Ball dia. steps in 0.1 mm
+// → 1 decimal.  Deflection keeps 3: its dial step is 0.001 mm and the
+// calibration routine writes a measured value, so those digits are real.
+void updateProbeCfg3DFields() {
+    if (currentPendantScreen != PSCREEN_PROBE_CFG_3D) return;
+    const auto& p = pendantProbeV2;
+    char v[3][12];
+    snprintf(v[0], sizeof(v[0]), "%.1f", p.ballDia);
+    snprintf(v[1], sizeof(v[1]), "%.3f", p.deflection);
+    snprintf(v[2], sizeof(v[2]), "%.1f", p.calGaugeWidth);
+    static const char* const caps[3] = { "Ball dia", "Deflection", "Gauge width" };
+    for (int i = 0; i < 3; i++) {
+        NeuFieldStyle o;
+        o.focus = p.focusedField == i;
+        o.font  = i == 1 ? NEU_B9 : NEU_B12;
+        neuFieldRepaint(P3_FIELDS[i].x, P3_FIELDS[i].y, P3_FIELDS[i].w, P3_FIELDS[i].h, caps[i], v[i], "mm", o);
     }
 }
 
-// Layout (240×320):
-//   drawTitle       y=0   h=35
-//   Hardware panel  y=38  h=26
-//   Stylus panel    y=67  h=55   (Ball dia · Deflection)
-//   Cal panel       y=128 h=142  (Gauge width · Calibrate + hint)
-//   button pair     y=280 h=40
-
-// Redraws ONLY the 3D-config KV fields (opaque boxes) — used by the full draw and
-// the dial handler so a jog-dial edit doesn't do a full-screen redraw.
-void updateProbeCfg3DFields() {
-    if (currentPendantScreen != PSCREEN_PROBE_CFG_3D) return;
-    int fo = pendantProbeV2.focusedField;
-    // Ball dia. steps in 0.1 mm → 1 decimal.  Deflection keeps 3: its dial step is
-    // 0.001 mm and the calibration routine writes a measured value, so those digits
-    // are real.
-    probeDrawKVTouch( 7,  79, 112, 40, "Ball dia.",   pendantProbeV2.ballDia,       "mm", PROBE_C_BLUE, fo==0, 1);
-    probeDrawKVTouch(122,  79, 111, 40, "Deflection",  pendantProbeV2.deflection,    "mm", PROBE_C_BLUE, fo==1, 3);
-    probeDrawKVTouch(  7, 140, 112, 40, "Gauge width", pendantProbeV2.calGaugeWidth, "mm", PROBE_C_BLUE, fo==2, 1);
+static void drawProbe3DGraphic() {
+    const int x = P3_DIAG.x, y = P3_DIAG.y, cx = x + P3_DIAG.w / 2;
+    char dim[16];
+    snprintf(dim, sizeof(dim), "%.1f mm", pendantProbeV2.ballDia);
+    neuInset(x, y, P3_DIAG.w, P3_DIAG.h, 12, 3);
+    neuFillRect(cx - 7, y + 10, 14, 8, NEU_TEXT3);              // collet / shank
+    neuFillRoundRect(cx - 17, y + 18, 34, 18, 4, NEU_TEXT2);    // probe body
+    neuFillRect(cx - 1, y + 36, 3, 30, NEU_TEXT2);              // stylus
+    neuFillCircle(cx, y + 70, 5, NEU_ACCENT);                   // ball
+    neuFillRect(cx - 70, y + 78, 140, 6, NEU_TEXT3);            // work surface
+    neuFillRect(cx + 12, y + 70, 30, 1, NEU_TEXT3);             // dimension: ball diameter
+    neuSmall(dim, cx + 46, y + 66, NEU_ACCENT);
 }
 
 void drawProbeCfg3DScreen() {
-    display.fillScreen(PROBE_BG_SCREEN);
-    drawTitle("PROBE CONFIG");
-
-    // ── Hardware panel (static info) ──────────────────────────────────────
-    display.fillRoundRect(5, 38, 230, 26, 4, PROBE_BG_PANEL);
-    display.setTextSize(1);
-    display.setTextColor(PROBE_C_LBLUE);
-    display.setCursor(10, 41);
-    display.print("PROBE HARDWARE");
-    display.setTextColor(PROBE_C_GREEN);
-    display.setCursor(10, 53);
-    display.print("3D Touch Probe");
-
-    // ── Stylus panel (Ball dia · Deflection) ─────────────────────────────
-    display.fillRoundRect(5, 67, 230, 55, 4, PROBE_BG_PANEL);
-    display.setTextSize(1);
-    display.setTextColor(PROBE_C_LBLUE);
-    display.setCursor(10, 70);
-    display.print("STYLUS");
-
-    // ── Deflection-calibration panel (field spaced like the Stylus panel) ─
-    display.fillRoundRect(5, 128, 230, 55, 4, PROBE_BG_PANEL);
-    display.setTextSize(1);
-    display.setTextColor(PROBE_C_LBLUE);
-    display.setCursor(10, 131);
-    display.print("DEFLECTION CAL");
-
-    drawButton(122, 140, 111, 40, "Calibrate", PROBE_BTN_BLUE, COLOR_WHITE, 2);
-
-    // KV fields last (both panel backgrounds now drawn) — the dial handler also
-    // calls this alone, so turning the dial updates a value without a full redraw.
+    neuHeader("Probe Setup");
+    neuCaption("Stylus  3D touch probe", 12, 40);
+    for (const NeuRect& f : P3_FIELDS) neuInset(f.x, f.y, f.w, f.h, 8, 3);
+    neuCaption("Deflection calibration", 12, 108);
     updateProbeCfg3DFields();
-
-    // ── Illustration ──────────────────────────────────────────────────────
+    NeuBtnStyle cal;
+    cal.color = NEU_ACCENT;
+    neuButton(P3_CAL.x, P3_CAL.y, P3_CAL.w, P3_CAL.h, "Calibrate", cal);
     drawProbe3DGraphic();
+    neuNav(PROBE_CFG_NAV, 3);
 
-    // ── Button pair ───────────────────────────────────────────────────────
-    drawButton(  5, 280, 112, 40, "Back", PROBE_BTN_BLUE,   COLOR_WHITE, 2);
-    drawButton(123, 280, 112, 40, "Save", COLOR_DARK_GREEN, COLOR_GREEN, 2);
-
-    // ── Calibration overlays ──────────────────────────────────────────────
-    char vbuf[24];
-    switch (pendantProbeV2.calState) {
-        case 4:
-            drawCalOverlay("START CALIBRATION?", "PROBE MOVES", PROBE_C_YELLOW, 2, "START");
-            break;
-        case 1:
-            drawCalOverlay("CALIBRATING...", "PROBING", PROBE_C_YELLOW, 0);
-            break;
-        case 2:
-            snprintf(vbuf, sizeof(vbuf), "%.3f mm", pendantProbeV2.calResult);
-            drawCalOverlay("MEASURED DEFLECTION", vbuf, PROBE_C_GREEN, 2);
-            break;
-        case 3:
-            drawCalOverlay("CALIBRATION FAILED", "CHECK SETUP", PROBE_C_RED, 1);
-            break;
+    // ── Calibration dialogs ──
+    const auto& p = pendantProbeV2;
+    if (p.calState == 4) {
+        const char* l[] = { "The probe will move.", "Centre it over the gauge block." };
+        s_calDialog = neuDialog("Calibrate?", l, 2, "Cancel", "Start", NEU_RUN);
+    } else if (p.calState == 1) {
+        const char* l[] = { "Probing both faces" };
+        s_calDialog = neuDialog("Calibrating...", l, 1, nullptr, nullptr);
+    } else if (p.calState == 2) {
+        char title[20];
+        snprintf(title, sizeof(title), "%.3f mm", p.calResult);
+        const char* l[] = { "Measured deflection", "Apply it to the stylus?" };
+        s_calDialog = neuDialog(title, l, 2, "Cancel", "Apply", NEU_RUN, NEU_RUN);
+    } else if (p.calState == 3) {
+        const char* l[] = { "Check the setup and the", "probe connection" };
+        s_calDialog = neuDialog("Calibration failed", l, 2, nullptr, "OK", NEU_TEXT, NEU_ALARM);
     }
 }
 
@@ -280,163 +220,158 @@ void updateProbeCfg3DScreen() {
 }
 
 void handleProbeCfg3DTouch(int x, int y) {
-    // ── Calibration overlay is modal ──────────────────────────────────────
-    if (pendantProbeV2.calState == 4) {                    // confirm: CANCEL | START
-        if (isTouchInBounds(x, y, 28, 175, 78, 32)) {      // CANCEL
-            pendantProbeV2.calState = 0; drawProbeCfg3DScreen();
-        } else if (isTouchInBounds(x, y, 114, 175, 98, 32)) {  // START
-            pendantProbeV2.calState   = 1;
-            pendantProbeV2.calStartMs = millis();
-            drawProbeCfg3DScreen();       // show the CALIBRATING overlay first
+    auto& p = pendantProbeV2;
+    // ── Calibration dialog is modal ──
+    if (p.calState == 4) {                                  // confirm: Cancel | Start
+        if (neuDialogHit(s_calDialog.cancel, x, y)) {
+            p.calState = 0;
+            drawProbeCfg3DScreen();
+            suppressTouchBounce();
+        } else if (neuDialogHit(s_calDialog.ok, x, y)) {
+            p.calState   = 1;
+            p.calStartMs = millis();
+            drawProbeCfg3DScreen();       // show the Calibrating dialog first
             runProbeCalibration();
         }
         return;
     }
-    if (pendantProbeV2.calState == 2) {                    // result: CANCEL | APPLY
-        if (isTouchInBounds(x, y, 28, 175, 78, 32)) {      // CANCEL
-            pendantProbeV2.calState = 0; drawProbeCfg3DScreen();
-        } else if (isTouchInBounds(x, y, 114, 175, 98, 32)) {  // APPLY
-            pendantProbeV2.deflection = pendantProbeV2.calResult;
+    if (p.calState == 2) {                                  // result: Cancel | Apply
+        if (neuDialogHit(s_calDialog.cancel, x, y)) {
+            p.calState = 0;
+            drawProbeCfg3DScreen();
+            suppressTouchBounce();
+        } else if (neuDialogHit(s_calDialog.ok, x, y)) {
+            p.deflection = p.calResult;
             saveProbeSettings();
-            pendantProbeV2.calState = 0; drawProbeCfg3DScreen();
+            p.calState = 0;
+            drawProbeCfg3DScreen();
+            suppressTouchBounce();
         }
         return;
     }
-    if (pendantProbeV2.calState == 3) {                    // error: OK dismiss
-        if (isTouchInBounds(x, y, 71, 175, 98, 32)) { pendantProbeV2.calState = 0; drawProbeCfg3DScreen(); }
+    if (p.calState == 3) {                                  // failed: OK dismisses
+        if (neuDialogHit(s_calDialog.ok, x, y)) {
+            p.calState = 0;
+            drawProbeCfg3DScreen();
+            suppressTouchBounce();
+        }
         return;
     }
-    if (pendantProbeV2.calState == 1) return;              // busy — ignore taps
+    if (p.calState == 1) return;                            // busy — ignore taps
 
-    // ── KV fields — tap to focus ──────────────────────────────────────────
-    bool redraw = false;
-    if (isTouchInBounds(x, y,  7,  79, 112, 40)) { pendantProbeV2.focusedField = (pendantProbeV2.focusedField == 0) ? -1 : 0; redraw = true; }
-    if (isTouchInBounds(x, y, 122,  79, 111, 40)) { pendantProbeV2.focusedField = (pendantProbeV2.focusedField == 1) ? -1 : 1; redraw = true; }
-    if (isTouchInBounds(x, y,  7, 140, 112, 40)) { pendantProbeV2.focusedField = (pendantProbeV2.focusedField == 2) ? -1 : 2; redraw = true; }
-    if (redraw) { drawProbeCfg3DScreen(); return; }
+    if (cfgFieldTouch(P3_FIELDS, 3, x, y, updateProbeCfg3DFields)) return;
 
-    // ── Calibrate button → confirm first (motion safety) ──────────────────
-    if (isTouchInBounds(x, y, 122, 140, 111, 40)) {
-        if (!pendantConnected) { pendantProbeV2.calState = 3; drawProbeCfg3DScreen(); return; }
-        pendantProbeV2.calState = 4;     // ask before any motion
+    // Calibrate → confirm first (motion safety)
+    if (isTouchInBounds(x, y, P3_CAL.x, P3_CAL.y, P3_CAL.w, P3_CAL.h)) {
+        p.calState = pendantConnected ? 4 : 3;
         drawProbeCfg3DScreen();
+        suppressTouchBounce();   // a held tap must not land on the dialog
         return;
     }
-
-    // Back — return to the hub without saving
-    if (isTouchInBounds(x, y, 5, 280, 112, 40)) {
-        currentPendantScreen = PSCREEN_PROBE;
-        return;
-    }
-    // Save — persist + return to the hub
-    if (isTouchInBounds(x, y, 122, 280, 113, 40)) {
-        saveProbeSettings();
-        currentPendantScreen = PSCREEN_PROBE;
-        return;
-    }
+    cfgNavTouch(x, y);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  SCR0b — TOUCH PLATE CONFIG  (Z-Height plate OR XYZ plate)
+//  SCR0b — TOUCH PLATE SETUP  (Z-Height plate OR XYZ plate)
 // ══════════════════════════════════════════════════════════════════════════════
 
-// Shared by both plate types.  Field set depends on the probe type:
-//   Z-Height Touch Plate → Thickness only
-//   XYZ Touch Plate      → Thickness, Width, XY offset X, XY offset Y
 // focusedField: 0 = thickness  1 = width  2 = XY offset X  3 = XY offset Y
+static bool plateIsXYZ() { return pendantProbeV2.probeTypeIdx == PROBE_TYPE_XYZPLATE; }
+
+static int plateFields(NeuRect* out) {
+    if (plateIsXYZ()) {
+        out[0] = { 10, 52, 106, 42 };
+        out[1] = { 124, 52, 106, 42 };
+        out[2] = { 10, 102, 106, 42 };
+        out[3] = { 124, 102, 106, 42 };
+        return 4;
+    }
+    out[0] = { 10, 52, 220, 54 };
+    return 1;
+}
 
 void enterProbeCfgPlate() {
-    spriteStatusBar.deleteSprite();
-    spriteAxisDisplay.deleteSprite();
-    spriteValueDisplay.deleteSprite();
-    spriteFileDisplay.deleteSprite();
+    releasePanelSprites();
     pendantProbeV2.focusedField   = 0;   // thickness — valid for both plate types
     pendantProbeV2.confirmActive  = false;
     pendantProbeV2.dialAccelCount = 0;
 }
 
-void exitProbeCfgPlate() {}
+void exitProbeCfgPlate() {
+    pendantProbeV2.focusedField = -1;
+}
 
-// Layout (240×320):
-//   drawTitle      y=0   h=35
-//   Type panel     y=38  h=26   (static label: plate type name)
-//   Dimensions     y=67  h=55/98  (1 field for Z-plate, 4 for XYZ plate)
-//   warn banner    y=...
-//   button pair    y=280 h=40
-
-// Redraws ONLY the plate-config KV fields (opaque boxes) — used by the full draw
-// and the dial handler so a jog-dial edit doesn't do a full-screen redraw.
+// Redraws ONLY the plate fields (and, for the Z plate, the diagram's dimension
+// label) — used by the full draw and the dial handler.  1 decimal on the XYZ
+// plate (all four step in 0.1 mm); 2 on the single large thickness field.
 void updateProbeCfgPlateFields() {
     if (currentPendantScreen != PSCREEN_PROBE_CFG_PLATE) return;
-    bool xyz = (pendantProbeV2.probeTypeIdx == PROBE_TYPE_XYZPLATE);
-    int fo = pendantProbeV2.focusedField;
-    // 1 decimal — all four step in 0.1 mm.
-    probeDrawKVTouch(7, 79, 112, 40, "Thickness", pendantProbeV2.plateThick, "mm", PROBE_C_BLUE, fo==0, 1);
-    if (xyz) {
-        probeDrawKVTouch(122,  79, 111, 40, "Width",       pendantProbeV2.plateWidth, "mm", PROBE_C_DIMBLUE, fo==1, 1);
-        probeDrawKVTouch(  7, 122, 112, 40, "XY offset X", pendantProbeV2.plateOffX,  "mm", PROBE_C_BLUE,    fo==2, 1);
-        probeDrawKVTouch(122, 122, 111, 40, "XY offset Y", pendantProbeV2.plateOffY,  "mm", PROBE_C_BLUE,    fo==3, 1);
+    const auto& p  = pendantProbeV2;
+    const int   fo = p.focusedField;
+    NeuRect     F[4];
+    const int   n = plateFields(F);
+    char        v[12];
+    if (n == 1) {
+        snprintf(v, sizeof(v), "%.2f", p.plateThick);
+        NeuFieldStyle o;
+        o.focus = fo == 0;
+        o.font  = NEU_B18;
+        neuFieldRepaint(F[0].x, F[0].y, F[0].w, F[0].h, "Plate thickness", v, "mm", o);
+        neuPanelBegin(192, 231, 34, 10);                 // the diagram's dimension label
+        neuFillRect(192, 231, 34, 10, NEU_WELL);
+        neuSmall(v, 192, 232, NEU_ACCENT);
+        neuPanelEnd();
+        return;
+    }
+    static const char* const caps[4] = { "Thickness", "Width", "Wall X", "Wall Y" };
+    const float vals[4] = { p.plateThick, p.plateWidth, p.plateOffX, p.plateOffY };
+    for (int i = 0; i < 4; i++) {
+        snprintf(v, sizeof(v), "%.1f", vals[i]);
+        NeuFieldStyle o;
+        o.focus = fo == i;
+        neuFieldRepaint(F[i].x, F[i].y, F[i].w, F[i].h, caps[i], v, "mm", o);
+    }
+}
+
+static void drawPlateDiagram() {
+    const bool    xyz = plateIsXYZ();
+    const NeuRect d   = xyz ? NeuRect{ 10, 154, 220, 116 } : NeuRect{ 10, 116, 220, 154 };
+    neuInset(d.x, d.y, d.w, d.h, 12, 3);
+    const int cx = d.x + 110, by = d.y + d.h - 24;
+    if (xyz) {   // plan view: L-shaped plate sitting on the stock corner
+        neuFillRect(cx - 30, by - 50, 90, 52, NEU_TEXT3);
+        neuFillRect(cx - 42, by - 62, 80, 12, NEU_ACCENT);
+        neuFillRect(cx - 42, by - 62, 12, 64, NEU_ACCENT);
+        neuCaption("Plan view", d.x + 12, d.y + 10);
+    } else {     // side view: plate on the stock, probe tip on the plate, thickness dimension
+        char v[12];
+        snprintf(v, sizeof(v), "%.2f", pendantProbeV2.plateThick);
+        neuFillRect(cx - 80, by, 160, 18, NEU_TEXT3);
+        neuFillRect(cx - 50, by - 20, 100, 20, NEU_ACCENT);
+        prkProbeTool(cx, by - 20, 50);
+        const int dx = cx + 66;
+        neuFillRect(dx, by - 20, 1, 20, NEU_TEXT2);
+        neuFillRect(dx - 4, by - 20, 9, 1, NEU_TEXT2);
+        neuFillRect(dx - 4, by - 1, 9, 1, NEU_TEXT2);
+        neuSmall(v, dx + 6, by - 14, NEU_ACCENT);
+        neuCaption("Turn the dial to adjust", cx, d.y + 12, NEU_TEXT3, NEU_CENTER);
     }
 }
 
 void drawProbeCfgPlateScreen() {
-    display.fillScreen(PROBE_BG_SCREEN);
-    drawTitle("PROBE CONFIG");
-
-    bool xyz = (pendantProbeV2.probeTypeIdx == PROBE_TYPE_XYZPLATE);
-
-    // ── Type panel (static info — the probe type is shown here, so the title
-    //    can stay generic "Probe Config") ──────────────────────────────────
-    display.fillRoundRect(5, 38, 230, 26, 4, PROBE_BG_PANEL);
-    display.setTextSize(1);
-    display.setTextColor(PROBE_C_LBLUE);
-    display.setCursor(10, 41);
-    display.print("PROBE TYPE");
-    display.setTextColor(PROBE_C_GREEN);
-    display.setCursor(10, 53);
-    display.print(xyz ? "XYZ Touch Plate" : "Z-Height Touch Plate");
-
-    // ── Dimensions panel ──────────────────────────────────────────────────
-    int panelH = xyz ? 98 : 55;
-    display.fillRoundRect(5, 67, 230, panelH, 4, PROBE_BG_PANEL);
-    display.setTextSize(1);
-    display.setTextColor(PROBE_C_LBLUE);
-    display.setCursor(10, 70);
-    display.print(xyz ? "PLATE DIMENSIONS" : "PLATE THICKNESS");
-
-    updateProbeCfgPlateFields();
-
-    // ── Illustration (replaces the old clip warning) ──────────────────────
-    if (xyz) drawPlateXYZGraphic();
-    else     drawPlateZGraphic();
-
-    // ── Button pair ───────────────────────────────────────────────────────
-    drawButton(  5, 280, 112, 40, "Back", PROBE_BTN_BLUE,   COLOR_WHITE, 2);
-    drawButton(123, 280, 112, 40, "Save", COLOR_DARK_GREEN, COLOR_GREEN, 2);
+    neuHeader("Plate Setup");
+    neuCaption(plateIsXYZ() ? "XYZ touch plate" : "Z touch plate", 12, 40);
+    NeuRect   F[4];
+    const int n = plateFields(F);
+    for (int i = 0; i < n; i++) neuInset(F[i].x, F[i].y, F[i].w, F[i].h, 8, 3);
+    drawPlateDiagram();
+    updateProbeCfgPlateFields();   // after the diagram: it repaints the diagram's label too
+    neuNav(PROBE_CFG_NAV, 3);
 }
 
 void handleProbeCfgPlateTouch(int x, int y) {
-    bool xyz = (pendantProbeV2.probeTypeIdx == PROBE_TYPE_XYZPLATE);
-
-    // KV fields — only the ones drawn for this plate type are tappable.
-    bool redraw = false;
-    if (isTouchInBounds(x, y, 7, 79, 112, 40)) { pendantProbeV2.focusedField = (pendantProbeV2.focusedField == 0) ? -1 : 0; redraw = true; }
-    if (xyz) {
-        if (isTouchInBounds(x, y, 122,  79, 111, 40)) { pendantProbeV2.focusedField = (pendantProbeV2.focusedField == 1) ? -1 : 1; redraw = true; }
-        if (isTouchInBounds(x, y,   7, 122, 112, 40)) { pendantProbeV2.focusedField = (pendantProbeV2.focusedField == 2) ? -1 : 2; redraw = true; }
-        if (isTouchInBounds(x, y, 122, 122, 111, 40)) { pendantProbeV2.focusedField = (pendantProbeV2.focusedField == 3) ? -1 : 3; redraw = true; }
-    }
-    if (redraw) { drawProbeCfgPlateScreen(); return; }
-
-    // Setup — return to SCR0 without saving
-    if (isTouchInBounds(x, y, 5, 280, 112, 40)) {
-        currentPendantScreen = PSCREEN_PROBE;
-        return;
-    }
-    // Save — persist + return to SCR0
-    if (isTouchInBounds(x, y, 122, 280, 113, 40)) {
-        saveProbeSettings();
-        currentPendantScreen = PSCREEN_PROBE;
-        return;
-    }
+    NeuRect   F[4];
+    const int n = plateFields(F);
+    if (cfgFieldTouch(F, n, x, y, updateProbeCfgPlateFields)) return;
+    cfgNavTouch(x, y);
 }

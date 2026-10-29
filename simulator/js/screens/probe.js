@@ -26,7 +26,8 @@ function drawProbeTypeRow() {
 // Repaint ONLY the shared-settings fields — the dial handler calls this per detent.
 function updateProbeSharedFields() {
   if (currentPendantScreen !== PSCREEN_PROBE) return;
-  const p = pendantProbeV2, fo = p.focusedField, u = pendantMachine.inInches ? "in" : "mm";
+  // Values are mm (the probe G-code runs in G21), so they are labelled mm in either unit mode.
+  const p = pendantProbeV2, fo = p.focusedField, u = "mm";
   const vals = [["Probe", fmtF(p.probeRate, 0), u + "/m"], ["Seek", fmtF(p.seekRate, 0), u + "/m"],
                 ["Retract", fmtF(p.retractDist, 1), u], ["Max Z", fmtF(p.maxZTravel, 1), u]];
   vals.forEach(([c, v, un], i) => neuFieldValue(PRB_FIELDS[i][0], PRB_FIELDS[i][1], PRB_FW, PRB_FH, c, v, un, { focus: fo === i }));
