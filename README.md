@@ -1,4 +1,6 @@
 # FluidDial-CYD:
+*A fork of [dJOS1475/FluidDial-CYD](https://github.com/dJOS1475/FluidDial-CYD) by Derek Osborn, with a redesigned UI. The firmware, its features and the first-person notes below are his; this fork adds the neumorphic UI.*
+
 FluidDial-CYD is a custom firmware for CYD-equipped FluidDial CNC pendants. The UI has been rebuilt from the ground up for devices with 3 physical buttons and a jog dial. Supports both **resistive (XPT2046)** and **capacitive (CST816S)** CYD screen variants.
 
 Runs **wired over UART** or **wireless over ESP-NOW** (requires FluidNC v4.0.4+), with **Li-Ion battery** support for a fully untethered pendant.
@@ -7,12 +9,12 @@ This branch (`neu-ui`) gives every screen a new **neumorphic** look: soft raised
 
 <img src="new_ui/neumorphic/overview.png" alt="Main Menu, Jog, Status and XYZ Corner screens of the neumorphic UI" width="100%">
 
-Feedback is welcome - If you find an issue or have a request for improvements, please log an [Issue](https://github.com/dJOS1475/FluidDial-CYD/issues) and I'll investigate.
+Feedback is welcome — if you find an issue with this fork or the new UI, or have a request for improvements, please log an [Issue](https://github.com/hawtbawks/FluidDial-CYD/issues) here.
 
 **Updates:**
 See [CHANGELOG.md](CHANGELOG.md)
 
-<img src="https://raw.githubusercontent.com/dJOS1475/FluidDial-CYD/refs/heads/main/new_ui/Pendant5.jpeg" alt="CYD Dial Pendant With Buttons and Jog Dial" height="500">
+<img src="new_ui/Pendant5.jpeg" alt="CYD Dial Pendant With Buttons and Jog Dial" height="500">
 
 **Web Installer** (use Chrome/Edge) — installs this branch, the neumorphic UI:
 https://hawtbawks.github.io/FluidDial-CYD/
@@ -29,7 +31,7 @@ https://hawtbawks.github.io/FluidDial-CYD/
 
 **First boot after installing:** the pendant will display "Capacitive — Tap the Screen" followed by "Resistive — Tap the Screen". Tap the screen when your screen type is shown — the result is saved to flash and the pendant reboots into normal operation. This detection only runs once; subsequent boots go straight to the main menu. To re-detect (e.g. after swapping the CYD board), hold the **BOOT** button during the first second of startup.
 
-If you have problems with the Web Installer, close VS Code / PlatformIO first — if the serial monitor is open it will block the installer from accessing the COM port. Also try an InPrivate/Incognito browser tab. The precompiled binary images can be downloaded from the [Releases section](https://github.com/dJOS1475/FluidDial-CYD/releases) .  They can be installed with any “esptool” ESP32 firmware download program. The **merged-flash.bin** image should be downloaded to FLASH at address 0x0000.  One such download program is this [web installer](https://espressif.github.io/esptool-js/); there are many others.
+If you have problems with the Web Installer, close VS Code / PlatformIO first — if the serial monitor is open it will block the installer from accessing the COM port. Also try an InPrivate/Incognito browser tab. The precompiled binary images can be downloaded from this fork's [Releases section](https://github.com/hawtbawks/FluidDial-CYD/releases), or directly as [`docs/merged-flash.bin`](docs/merged-flash.bin).  They can be installed with any “esptool” ESP32 firmware download program. The **merged-flash.bin** image should be downloaded to FLASH at address 0x0000.  One such download program is this [web installer](https://espressif.github.io/esptool-js/); there are many others.
 
 ## 🎯 Design Goals
 
