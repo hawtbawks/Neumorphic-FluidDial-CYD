@@ -43,7 +43,9 @@ function updateStatusMachineStatus() {
   }
   const word = chip.label === "OFFLINE" ? "Connecting" : chip.label === "SYNC" ? "Syncing" : st.split(":")[0];
   neuLed(28, 63, chip.color, 5);
-  neuText(neuFit(word, "B18", job ? 120 : 180), 42, neuCapBase(38, 50, "B18"), "B18", chip.color);
+  // Big when it fits; a long word ("Connecting") steps down a size rather than being cut short.
+  const maxW = job ? 120 : 176, font = neuTextW(word, "B18") <= maxW ? "B18" : "B12";
+  neuText(neuFit(word, font, maxW), 42, neuCapBase(38, 50, font), font, chip.color);
   if (job) {
     neuCaption("Progress", 218, 50, NEU_TEXT3, "R");
     neuText(pendantMachine.jobPercent + "%", 218, 76, "B12", NEU_TEXT, "R");

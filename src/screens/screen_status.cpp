@@ -106,7 +106,10 @@ void updateStatusMachineStatus() {
             word[strcspn(word, ":")] = 0;
         }
         neuLed(28, 63, chip.color, 5);
-        neuText(neuFit(word, NEU_B18, job ? 120 : 180), 42, neuCapBase(38, 50, NEU_B18), NEU_B18, chip.color);
+        // Big when it fits; a long word ("Connecting") steps down a size rather than being cut short.
+        const int     maxW = job ? 120 : 176;
+        const NeuFont font = neuTextW(word, NEU_B18) <= maxW ? NEU_B18 : NEU_B12;
+        neuText(neuFit(word, font, maxW), 42, neuCapBase(38, 50, font), font, chip.color);
         if (job) {
             char pct[8];
             snprintf(pct, sizeof(pct), "%d%%", s.jobPercent);
