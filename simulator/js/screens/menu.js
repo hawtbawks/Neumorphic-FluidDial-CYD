@@ -13,6 +13,7 @@ const MENU_TILES = [
 function menuTileRect(i) { return { x: 10 + (i % 2) * 115, y: 114 + (i >> 1) * 49, w: 105, h: 44 }; }
 
 let _menuKey = "";
+let _menuLabelsKey = "";
 
 function enterMainMenu() { releasePanelSprites(); _menuKey = ""; }
 function exitMainMenu() { releasePanelSprites(); }
@@ -54,7 +55,11 @@ function updateMainMenuDisplay() {
   const modeChanged = _menuKey.split("|")[0] !== mode;
   _menuKey = key;
   if (mode === "dro") {
-    if (modeChanged) { display.fillRect(13, 41, 214, 62, NEU_WELL); neuDroLabels(10, 38); }
+    if (modeChanged || neuDroLabelsKey() !== _menuLabelsKey) {
+      _menuLabelsKey = neuDroLabelsKey();
+      display.fillRect(13, 41, 214, 62, NEU_WELL);
+      neuDroLabels(10, 38);
+    }
     neuDroValues(10, 38);
     return;
   }

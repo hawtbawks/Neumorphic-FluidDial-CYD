@@ -1,14 +1,33 @@
+/* screen_main_menu.cpp — neumorphic layout (spec: simulator/js/screens/menu.js)
+ *   hero card  y 38 h 68   DRO (work + machine), or the alarm / link / sync state when that matters more
+ *   tiles      2 x 4 grid, 105 x 44 at a 49 px pitch, raised, icon above a one-word label
+ * No nav bar: this is Home.
+ */
 #include "pendant_shared.h"
+#include "neu_ui.h"
 #include "screen_main_menu.h"
 #include "../Comms.h"
 #ifdef USE_ESPNOW
 #include "../PeerLink.h"
 #endif
 
+struct MenuTile { const char* label; NeuIcon icon; PendantScreen dest; };
+static const MenuTile kTiles[8] = {
+    { "Jog",       ICON_JOG,     PSCREEN_JOG_HOMING },      { "Work",    ICON_ORIGIN,  PSCREEN_PROBING_WORK },
+    { "Overrides", ICON_GAUGE,   PSCREEN_FEEDS_SPEEDS },    { "Spindle", ICON_SPINDLE, PSCREEN_SPINDLE_CONTROL },
+    { "Macros",    ICON_MACRO,   PSCREEN_MACROS },          { "Files",   ICON_CARD,    PSCREEN_SD_CARD },
+    { "Probe",     ICON_PROBE,   PSCREEN_PROBE },           { "Status",  ICON_STATUS,  PSCREEN_STATUS },
+};
+static NeuRect menuTileRect(int i) { return { 10 + (i % 2) * 115, 114 + (i >> 1) * 49, 105, 44 }; }
+
+// Change key for the hero card: which mode it is in (with whatever names that
+// mode on screen), plus the positions while it shows the DRO.
+static char       s_modeKey[48];
+static NeuDroSnap s_dro;
+
 void enterMainMenu() {
-    // Status bar uses a TRANSIENT 16-bit panel (see updateMainMenuDisplay) so it
-    // renders true colour and only one buffer is live at a time.
     releasePanelSprites();
+    s_modeKey[0] = 0;
 }
 
 void exitMainMenu() {
@@ -16,41 +35,20 @@ void exitMainMenu() {
 }
 
 void drawMainMenu() {
-    display.fillScreen(COLOR_BACKGROUND);
-    drawTitle("MAIN MENU");
-
-    // Draw static background for status display area
-    display.fillRoundRect(5, 40, 230, 65, 5, COLOR_DARKER_BG);
+    neuHeader("FluidDial");
+    s_modeKey[0] = 0;
+    neuInset(10, 38, 220, NEU_DRO_H, 12, 3);
     updateMainMenuDisplay();
-
-    int btnY   = 115;
-    int btnH   = 47;
-    int btnGap = 52;
-
-    // Colour groups the menu by what each destination is for, so you can land on
-    // the right button without reading it.  The existing row pairs are already
-    // coherent categories, so nothing moves — only the tint changes.  These are
-    // all navigation colours: orange (selected), green (execute), red (alarm) and
-    // yellow (focus) stay reserved, so no menu button can be misread as a state.
-    const uint16_t MENU_MACHINE = COLOR_BLUE;    // move it, datum it, probe it, watch it
-    const uint16_t MENU_PARAMS  = COLOR_TEAL;    // cutting parameters
-    const uint16_t MENU_JOBS    = COLOR_INDIGO;  // jobs & files
-
-    drawButton(5, btnY, 112, btnH, "Jog", MENU_MACHINE, COLOR_WHITE, 2);
-    drawButton(123, btnY, 112, btnH, "Work Area", MENU_MACHINE, COLOR_WHITE, 2);
-    drawMultiLineButton(5, btnY + btnGap, 112, btnH, "Feeds &", "Speeds", MENU_PARAMS, COLOR_WHITE, 2);
-    drawMultiLineButton(123, btnY + btnGap, 112, btnH, "Spindle", "Control", MENU_PARAMS, COLOR_WHITE, 2);
-    drawButton(5, btnY + btnGap * 2, 112, btnH, "Macros", MENU_JOBS, COLOR_WHITE, 2);
-    drawButton(123, btnY + btnGap * 2, 112, btnH, "SD Card", MENU_JOBS, COLOR_WHITE, 2);
-    drawButton(5, btnY + btnGap * 3, 112, btnH, "Probe", MENU_MACHINE, COLOR_WHITE, 2);
-    drawButton(123, btnY + btnGap * 3, 112, btnH, "Status", MENU_MACHINE, COLOR_WHITE, 2);
+    for (int i = 0; i < 8; i++) {
+        NeuRect r = menuTileRect(i);
+        neuRaised(r.x, r.y, r.w, r.h, 12, 3);
+        neuIcon(kTiles[i].icon, r.x + r.w / 2, r.y + 15, NEU_ACCENT);
+        neuText(kTiles[i].label, r.x + r.w / 2, r.y + 39, NEU_B9, NEU_TEXT, NEU_CENTER);
+    }
 }
 
-// Wireless link problems are reported in the STATUS panel rather than as an
-// overlay from the Connection screen — an overlay drew on top of the menu
-// buttons and was unreadable.  Returns null when the radio is fine (or not in
-// use) so the panel falls through to the normal machine status; UART has no
-// link to report and always returns null.
+// Wireless link problems are reported in the hero card, captioned ESP-NOW, so a
+// dead radio link never looks like a machine alarm.  UART has no link to report.
 struct LinkFault { const char* big; uint16_t col; const char* sub; };
 
 static bool espNowLinkFault(LinkFault& out) {
@@ -58,11 +56,11 @@ static bool espNowLinkFault(LinkFault& out) {
     static char subBuf[40];
     if (comms_active_mode() != COMMS_MODE_ESPNOW) return false;
     if (!espnow_radio_ready()) {
-        out = { "Radio down", COLOR_RED, "ESP-NOW failed to start" };
+        out = { "Radio down", NEU_ALARM, "ESP-NOW failed to start" };
         return true;
     }
     if (!espnow_has_saved_pairing()) {
-        out = { "Not paired", COLOR_RED, "Connection > Pair New" };
+        out = { "Not paired", NEU_ALARM, "Connection > Pair" };
         return true;
     }
     if (!espnow_is_connected()) {
@@ -71,7 +69,7 @@ static bool espNowLinkFault(LinkFault& out) {
         const char* name = (idx >= 0 && espnow_get_profile((size_t)idx, info) && info.hostname[0])
                            ? info.hostname : "machine";
         snprintf(subBuf, sizeof(subBuf), "Reconnecting to %s", name);
-        out = { "No link", COLOR_ORANGE, subBuf };
+        out = { "No link", NEU_HOLD, subBuf };
         return true;
     }
 #else
@@ -83,97 +81,73 @@ static bool espNowLinkFault(LinkFault& out) {
 void updateMainMenuDisplay() {
     if (currentPendantScreen != PSCREEN_MAIN_MENU) return;
 
-    // Snapshot under the lock first; skip the frame if it's briefly held rather
-    // than read the status String unlocked (a concurrent realloc on Core 0 would
-    // corrupt the heap).
-    String statusStr;
-    if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(5)) != pdTRUE) return;
-    statusStr = pendantMachine.status;
-    xSemaphoreGive(stateMutex);
+    char st[24];
+    neuStatus(st, sizeof(st));
+    LinkFault  fault;
+    const bool hasFault = espNowLinkFault(fault);
+    const bool syncing  = !pendantConnected || !pendantSynced || strcmp(st, "N/C") == 0 || !st[0];
 
-    int ox, oy;
-    LovyanGFX* g = beginPanelSprite(230, 65, ox, oy, 5, 40);
-    g->fillRect(ox, oy, 230, 65, COLOR_DARKER_BG);
+    char mode[48];
+    if (hasFault)                         snprintf(mode, sizeof(mode), "fault:%s", fault.big);
+    else if (syncing)                     snprintf(mode, sizeof(mode), "sync:%d", (int)pendantConnected);
+    else if (strncmp(st, "Alarm", 5) == 0) snprintf(mode, sizeof(mode), "alarm:%s", st);
+    else                                  strlcpy(mode, "dro", sizeof(mode));
+    const bool dro         = strcmp(mode, "dro") == 0;
+    const bool modeChanged = strcmp(mode, s_modeKey) != 0;
 
-    LinkFault lf;
-    if (espNowLinkFault(lf)) {
-        // Caption switches STATUS -> ESP-NOW so it is obvious WHICH layer is
-        // broken: a dead radio link and a machine sitting in Alarm are very
-        // different problems and must not look alike.
-        g->setTextColor(COLOR_GRAY_TEXT);
-        g->setTextSize(1);
-        int16_t lw = g->textWidth("ESP-NOW");
-        g->setCursor(ox + 115 - lw / 2, oy + 5);
-        g->print("ESP-NOW");
-
-        g->setTextColor(lf.col);
-        g->setTextSize(3);
-        int16_t bw = g->textWidth(lf.big);
-        g->setCursor(ox + 115 - bw / 2, oy + 20);
-        g->print(lf.big);
-
-        g->setTextColor(COLOR_GRAY_TEXT);
-        g->setTextSize(1);
-        int16_t sw = g->textWidth(lf.sub);
-        g->setCursor(ox + 115 - sw / 2, oy + 50);
-        g->print(lf.sub);
-    } else if (!pendantSynced || statusStr == "N/C" || statusStr.length() == 0) {
-        // Power-up / reconnect, two phases so the user knows what's happening:
-        //   "Connecting" — link not yet established (WiFi assoc / WS handshake
-        //                  or UART not yet responding)
-        //   "Syncing"    — link is up; fetching config + waiting for live state
-        // Size 3 so the 10-char "Connecting" fits the 230 px bar.  Same for
-        // WiFi and wired.
-        const char* phase = pendantConnected ? "Syncing" : "Connecting";
-        g->setTextColor(COLOR_GRAY_TEXT);
-        g->setTextSize(1);
-        int16_t lw = g->textWidth("STATUS");
-        g->setCursor(ox + 115 - lw / 2, oy + 8);
-        g->print("STATUS");
-        g->setTextColor(COLOR_ORANGE);
-        g->setTextSize(3);
-        int16_t cw = g->textWidth(phase);
-        g->setCursor(ox + 115 - cw / 2, oy + 30);
-        g->print(phase);
-    } else if (statusStr.startsWith("Alarm")) {
-        // Alarm: description on label line, "ALARM" in red on status line
-        String desc = alarmDescription(statusStr);
-        g->setTextColor(TFT_RED);
-        g->setTextSize(1);
-        int16_t dw = g->textWidth(desc.c_str());
-        g->setCursor(ox + 115 - dw / 2, oy + 8);
-        g->print(desc);
-        g->setTextSize(4);
-        int16_t sw = g->textWidth("ALARM");
-        g->setCursor(ox + 115 - sw / 2, oy + 26);
-        g->print("ALARM");
-    } else {
-        g->setTextColor(COLOR_GRAY_TEXT);
-        g->setTextSize(1);
-        int16_t labelWidth = g->textWidth("STATUS");
-        g->setCursor(ox + 115 - labelWidth / 2, oy + 8);
-        g->print("STATUS");
-        g->setTextColor(COLOR_CYAN);
-        g->setTextSize(4);
-        int16_t statusWidth = g->textWidth(statusStr.c_str());
-        g->setCursor(ox + 115 - statusWidth / 2, oy + 26);
-        g->print(statusStr);
+    if (dro) {
+        NeuDroSnap snap;
+        if (!neuDroSnapshot(snap)) return;   // lock busy: try again next tick
+        if (!modeChanged && neuDroSame(snap, s_dro)) return;
+        // The captions (work offset, Mach column) follow these, not the numbers.
+        const bool labelsChanged = modeChanged || snap.numAxes != s_dro.numAxes
+                                   || strcmp(snap.wcs, s_dro.wcs) != 0;
+        s_dro = snap;
+        strlcpy(s_modeKey, mode, sizeof(s_modeKey));
+        neuPanelBegin(13, 41, 214, 62);
+        if (labelsChanged) {
+            neuFillRect(13, 41, 214, 62, NEU_WELL);
+            neuDroLabels(10, 38, snap);
+        }
+        neuDroValues(10, 38, snap);
+        neuPanelEnd();
+        return;
     }
+    if (!modeChanged) return;
+    strlcpy(s_modeKey, mode, sizeof(s_modeKey));
 
-    endPanelSprite(230, 65, 5, 40);
+    neuPanelBegin(13, 41, 214, 62);
+    neuFillRect(13, 41, 214, 62, NEU_WELL);
+    if (hasFault) {
+        neuCaption("ESP-NOW", 22, 48);
+        neuText(fault.big, 22, 78, NEU_B12, fault.col);
+        neuSmall(fault.sub, 22, 88, NEU_TEXT2);
+    } else if (syncing) {
+        neuCaption("Controller", 22, 48);
+        neuText(pendantConnected ? "Syncing..." : "Connecting...", 22, 78, NEU_B12,
+                pendantConnected ? NEU_HOLD : NEU_TEXT2);
+        neuSmall(pendantConnected ? "Reading machine settings" : "Waiting for FluidNC", 22, 88, NEU_TEXT3);
+    } else {
+        // "Alarm:1" -> caption "ALARM 1", headline the description
+        char cap[24];
+        strlcpy(cap, st, sizeof(cap));
+        char* colon = strchr(cap, ':');
+        if (colon) *colon = ' ';
+        String desc = alarmDescription(String(st));
+        desc.replace(" triggered", "");
+        neuCaption(cap, 22, 48, NEU_ALARM);
+        neuText(desc.c_str(), 22, 78, NEU_B12, NEU_ALARM);
+        neuSmall("Home or unlock to clear", 22, 88, NEU_TEXT2);
+    }
+    neuPanelEnd();
 }
 
 void handleMainMenuTouch(int x, int y) {
-    int btnY   = 115;
-    int btnH   = 47;
-    int btnGap = 52;
-
-    if      (isTouchInBounds(x, y, 5,   btnY,              112, btnH)) currentPendantScreen = PSCREEN_JOG_HOMING;
-    else if (isTouchInBounds(x, y, 123, btnY,              112, btnH)) currentPendantScreen = PSCREEN_PROBING_WORK;
-    else if (isTouchInBounds(x, y, 5,   btnY + btnGap,     112, btnH)) currentPendantScreen = PSCREEN_FEEDS_SPEEDS;
-    else if (isTouchInBounds(x, y, 123, btnY + btnGap,     112, btnH)) currentPendantScreen = PSCREEN_SPINDLE_CONTROL;
-    else if (isTouchInBounds(x, y, 5,   btnY + btnGap * 2, 112, btnH)) currentPendantScreen = PSCREEN_MACROS;
-    else if (isTouchInBounds(x, y, 123, btnY + btnGap * 2, 112, btnH)) currentPendantScreen = PSCREEN_SD_CARD;
-    else if (isTouchInBounds(x, y, 5,   btnY + btnGap * 3, 112, btnH)) currentPendantScreen = PSCREEN_PROBE;
-    else if (isTouchInBounds(x, y, 123, btnY + btnGap * 3, 112, btnH)) currentPendantScreen = PSCREEN_STATUS;
+    for (int i = 0; i < 8; i++) {
+        NeuRect r = menuTileRect(i);
+        if (x >= r.x - 4 && x <= r.x + r.w + 4 && y >= r.y - 4 && y <= r.y + r.h + 4) {
+            currentPendantScreen = kTiles[i].dest;
+            return;
+        }
+    }
 }
