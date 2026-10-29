@@ -151,7 +151,7 @@ let _neuChipKey = "";
 function _neuChip() {
   const st = neuChipState();
   const w = neuTextW(st.label, "B9") + 26, x = 232 - w;
-  const clearX = Math.min(x - 52, 10 + neuTextW(_neuTitle, "B9") + 4);   // chip + icon zone, never the title
+  const clearX = Math.max(x - 52, 10 + neuTextW(_neuTitle, "B9") + 4);   // chip + icon zone, never the title
   display.fillRect(clearX, 1, 240 - clearX, 28, NEU_BG);
   neuInset(x, 5, w, 20, 10, 2);
   neuLed(x + 11, 15, st.color, 3);
@@ -190,10 +190,10 @@ function _neuHeaderRight() {
 // Clears the screen and draws the header.  Every screen's draw*() starts here.
 function neuHeader(title) {
   display.fillScreen(NEU_BG);
-  _neuTitle = title;
+  _neuTitle = neuFit(title, "B9", 150);   // as drawn, so widths measure what is on screen
   _neuChipKey = _neuHeaderKey();
   _neuHeaderRight();
-  neuText(neuFit(title, "B9", 150), 10, neuCapBase(5, 20, "B9"), "B9", NEU_TEXT);
+  neuText(_neuTitle, 10, neuCapBase(5, 20, "B9"), "B9", NEU_TEXT);
   neuGroove(NEU_HDR_H);
 }
 function _neuHeaderKey() {

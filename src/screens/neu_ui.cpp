@@ -271,7 +271,7 @@ static void neuHeaderKey(NeuHdrKey& k) {
 
 static int neuChip(const NeuHdrKey& k) {
     int w = neuTextW(k.chip.label, NEU_B9) + 26, x = 232 - w;
-    int clearX = min(x - 52, 10 + neuTextW(s_title, NEU_B9) + 4);   // chip + icon zone, never the title
+    int clearX = max(x - 52, 10 + neuTextW(s_title, NEU_B9) + 4);   // chip + icon zone, never the title
     neuFillRect(clearX, 1, 240 - clearX, 28, NEU_BG);
     neuInset(x, 5, w, 20, 10, 2);
     neuLed(x + 11, 15, k.chip.color, 3);
@@ -315,11 +315,11 @@ static void neuHeaderRight(const NeuHdrKey& k) {
 void neuHeader(const char* title) {
     neuInit();
     display.fillScreen(NEU_BG);
-    strlcpy(s_title, title, sizeof(s_title));
+    strlcpy(s_title, neuFit(title, NEU_B9, 150), sizeof(s_title));   // as drawn, so widths measure what is on screen
     s_hdrActive = true;
     neuHeaderKey(s_hdrKey);
     neuHeaderRight(s_hdrKey);
-    neuText(neuFit(title, NEU_B9, 150), 10, neuCapBase(5, 20, NEU_B9), NEU_B9, NEU_TEXT);
+    neuText(s_title, 10, neuCapBase(5, 20, NEU_B9), NEU_B9, NEU_TEXT);
     neuGroove(NEU_HDR_H);
 }
 
