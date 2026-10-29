@@ -1,167 +1,101 @@
-/* screen_status.cpp port */
+/* screen_status.cpp — neumorphic layout
+ *   state card  y 38 h 50   LED + state word; progress % on the right while a job runs
+ *   job card    y 96 h 52   current / loaded file + progress bar
+ *   DRO         y 156       work + machine
+ *   feed/spindle fields y 232 h 40
+ *   nav         Home | FluidNC
+ */
 
-function enterStatus() { releasePanelSprites(); }
+const STATUS_NAV = [NAV_HOME, { id: "fluidnc", label: "FluidNC", icon: "gear" }];
+let _statusKeys = {};
+
+function enterStatus() { releasePanelSprites(); _statusKeys = {}; }
 function exitStatus() { releasePanelSprites(); }
 
 function drawStatusScreen() {
-  display.fillScreen(COLOR_BACKGROUND);
-  drawTitle("STATUS");
+  neuHeader("Status");
+  _statusKeys = {};
+  neuInset(10, 38, 220, 50, 12, 3);
+  neuInset(10, 96, 220, 52, 12, 3);
+  neuInset(10, 156, 220, NEU_DRO_H, 12, 3);
+  neuInset(10, 232, 106, 40, 8, 3);
+  neuInset(124, 232, 106, 40, 8, 3);
   updateStatusMachineStatus();
   updateStatusCurrentFile();
   updateStatusAxisPositions();
   updateStatusFeedSpindle();
-  drawButton(5, 280, 112, 40, "Main Menu", COLOR_BLUE, COLOR_WHITE, 2);
-  drawButton(123, 280, 112, 40, "FluidNC", COLOR_BLUE, COLOR_WHITE, 2);
+  neuNav(STATUS_NAV);
 }
 
 function updateStatusMachineStatus() {
   if (currentPendantScreen !== PSCREEN_STATUS) return;
-  const statusStr = pendantMachine.status;
-  const fileStr = pendantMachine.currentFile;
-  const pct = pendantMachine.jobPercent;
-  const jobRunning = fileStr.length > 0;
-  const P = panel(230, 50, 5, 40);
-  const g = P.g, ox = P.ox, oy = P.oy;
-  g.fillRect(ox, oy, 230, 50, COLOR_DARKER_BG);
-
-  if (!pendantSynced || statusStr === "N/C" || statusStr.length === 0) {
-    const phase = pendantConnected ? "Syncing" : "Connecting";
-    g.setTextColor(COLOR_GRAY_TEXT); g.setTextSize(1);
-    let lw = g.textWidth("MACHINE STATUS");
-    g.setCursor(ox + 115 - (lw / 2 | 0), oy + 5); g.print("MACHINE STATUS");
-    g.setTextColor(COLOR_ORANGE); g.setTextSize(3);
-    let cw = g.textWidth(phase);
-    g.setCursor(ox + 115 - (cw / 2 | 0), oy + 22); g.print(phase);
-  } else if (statusStr.startsWith("Alarm")) {
-    const desc = alarmDescription(statusStr);
-    g.setTextColor(TFT_RED); g.setTextSize(1);
-    let dw = g.textWidth(desc);
-    g.setCursor(ox + 115 - (dw / 2 | 0), oy + 5); g.print(desc);
-    g.setTextSize(3);
-    let sw = g.textWidth("ALARM");
-    g.setCursor(ox + 115 - (sw / 2 | 0), oy + 22); g.print("ALARM");
-  } else if (jobRunning) {
-    g.setTextColor(COLOR_GRAY_TEXT); g.setTextSize(1);
-    g.setCursor(ox + 5, oy + 5); g.print("MACHINE STATUS");
-    g.setTextColor(COLOR_CYAN); g.setTextSize(3);
-    let sw = g.textWidth(statusStr);
-    let cx = 56 - (sw / 2 | 0); if (cx < 0) cx = 0;
-    g.setCursor(ox + cx, oy + 22); g.print(statusStr);
-    g.drawLine(ox + 115, oy + 2, ox + 115, oy + 47, COLOR_BUTTON_GRAY);
-    const pctStr = pct + "%";
-    g.setTextColor(COLOR_GRAY_TEXT); g.setTextSize(1);
-    let lw = g.textWidth("PROGRESS");
-    g.setCursor(ox + 174 - (lw / 2 | 0), oy + 5); g.print("PROGRESS");
-    g.setTextColor(COLOR_GREEN); g.setTextSize(3);
-    let pw = g.textWidth(pctStr);
-    g.setCursor(ox + 174 - (pw / 2 | 0), oy + 22); g.print(pctStr);
-  } else {
-    g.setTextColor(COLOR_GRAY_TEXT); g.setTextSize(1);
-    let lw = g.textWidth("MACHINE STATUS");
-    g.setCursor(ox + 115 - (lw / 2 | 0), oy + 5); g.print("MACHINE STATUS");
-    g.setTextColor(COLOR_CYAN); g.setTextSize(3);
-    let sw = g.textWidth(statusStr);
-    g.setCursor(ox + 115 - (sw / 2 | 0), oy + 22); g.print(statusStr);
+  const st = pendantMachine.status, job = pendantMachine.currentFile.length > 0;
+  const key = st + pendantConnected + pendantSynced + job + pendantMachine.jobPercent;
+  if (_statusKeys.state === key) return;
+  _statusKeys.state = key;
+  display.fillRect(13, 41, 214, 44, NEU_WELL);
+  const chip = neuChipState();
+  if (st.startsWith("Alarm") && pendantSynced && pendantConnected) {
+    neuLed(28, 56, NEU_ALARM, 4);
+    neuText("Alarm", 42, 64, "B12", NEU_ALARM);
+    neuSmall(alarmDescription(st), 22, 73, NEU_TEXT2);
+    return;
+  }
+  const word = chip.label === "OFFLINE" ? "Connecting" : chip.label === "SYNC" ? "Syncing" : st.split(":")[0];
+  neuLed(28, 63, chip.color, 5);
+  neuText(neuFit(word, "B18", job ? 120 : 180), 42, neuCapBase(38, 50, "B18"), "B18", chip.color);
+  if (job) {
+    neuCaption("Progress", 218, 50, NEU_TEXT3, "R");
+    neuText(pendantMachine.jobPercent + "%", 218, 76, "B12", NEU_TEXT, "R");
   }
 }
 
 function updateStatusCurrentFile() {
   if (currentPendantScreen !== PSCREEN_STATUS) return;
-  const fileStr = pendantMachine.currentFile;
-  const P = panel(230, 40, 5, 95);
-  const g = P.g, ox = P.ox, oy = P.oy;
-  g.fillRoundRect(ox, oy, 230, 40, 5, COLOR_DARKER_BG);
-  if (pendantSdCard.loadedFile.length > 0 && fileStr.length === 0) {
-    g.setTextColor(COLOR_GREEN); g.setTextSize(1);
-    g.setCursor(ox + 5, oy + 5); g.print("READY - press green to run");
-    // loadedFile is a full path now that files can live in subfolders, and the
-    // panel only fits ~37 chars at this size.  Trim from the LEFT so the
-    // filename itself always survives.
-    g.setCursor(ox + 5, oy + 20);
-    {
-      let f = pendantSdCard.loadedFile;
-      const maxChars = 37;
-      if (f.length > maxChars) f = "..." + f.substring(f.length - (maxChars - 3));
-      g.print(f);
-    }
+  const file = pendantMachine.currentFile, loaded = pendantSdCard.loadedFile;
+  const key = file + "|" + loaded + "|" + pendantMachine.jobPercent;
+  if (_statusKeys.file === key) return;
+  _statusKeys.file = key;
+  display.fillRect(13, 99, 214, 46, NEU_WELL);
+  if (loaded.length > 0 && file.length === 0) {
+    neuCaption("Ready", 22, 106, NEU_RUN);
+    neuCaption("Press green", 218, 106, NEU_TEXT3, "R");
+    neuText(neuFit(loaded.split("/").pop(), "B9", 196), 22, 128, "B9", NEU_TEXT);
+    neuSmall(neuFitSmall(loaded, 32), 22, 134, NEU_TEXT3);
+  } else if (file.length > 0) {
+    neuCaption("Job", 22, 106);
+    neuText(neuFit(file.split("/").pop(), "B9", 150), 22, 128, "B9", NEU_TEXT);
+    neuText(pendantMachine.jobPercent + "%", 218, 128, "B9", NEU_ACCENT, "R");
+    neuProgressBar(22, 136, 196, pendantMachine.jobPercent / 100);
   } else {
-    g.setTextColor(COLOR_GRAY_TEXT); g.setTextSize(1);
-    g.setCursor(ox + 5, oy + 5); g.print("CURRENT FILE");
-    g.setTextColor(COLOR_CYAN);
-    g.setCursor(ox + 5, oy + 20); g.print(fileStr);
+    neuCaption("Job", 22, 106);
+    neuText("No job running", 22, 131, "S9", NEU_TEXT3);
   }
 }
+// Trim a path from the LEFT so the file name survives.
+function neuFitSmall(s, maxChars) { return s.length > maxChars ? "..." + s.substring(s.length - (maxChars - 3)) : s; }
 
 function updateStatusAxisPositions() {
   if (currentPendantScreen !== PSCREEN_STATUS) return;
-  // MACHINE coordinates (mpos[]).
-  const pos = pendantMachine.mpos;   // sized PENDANT_MAX_AXES; numAxes is clamped
-  const numAxes = pendantMachine.numAxes;
-  const P = panel(230, 65, 5, 140);
-  const g = P.g, ox = P.ox, oy = P.oy;
-  g.fillRoundRect(ox, oy, 230, 65, 5, COLOR_DARKER_BG);
-  g.setTextColor(COLOR_GRAY_TEXT); g.setTextSize(1);
-  g.setCursor(ox + 5, oy + 5); g.print("MACHINE POSITION");
-  // Unit hint, dim, top-right — drawn once so it costs no column width.  Without
-  // it the panel gave no clue whether it showed mm or inches (a 25x difference).
-  const inInch = pendantMachine.inInches;
-  g.setCursor(ox + 212, oy + 5); g.print(inInch ? "in" : "mm");
-  // Resolution follows the unit: 1 decimal always meant 0.1" = 2.54 mm in inch
-  // mode.  0.1 mm is the right grain for a monitoring DRO, so inch gets 3dp
-  // (0.025 mm) to land at the same real-world resolution.  Same pairing as
-  // probeDrawPosPanel().  A long coordinate can still outrun a column, so drop
-  // a decimal until it fits rather than running into the neighbouring axis.
-  // Two columns up to 4 axes; three once there are 5 or 6, so they still fit the
-  // panel's two rows instead of spilling past its bottom edge.
-  const nCols = numAxes > 4 ? 3 : 2;
-  const colW  = nCols === 3 ? 74 : 112;
-  const prefDec = inInch ? 3 : 1;
-  g.setTextColor(COLOR_ORANGE); g.setTextSize(2);
-  for (let i = 0; i < numAxes; i++) {
-    let dec = prefDec;
-    let s = AXIS_NAMES[i] + ":" + fmtF(pos[i], dec);
-    while (dec > 0 && g.textWidth(s) > colW) {
-      dec--;
-      s = AXIS_NAMES[i] + ":" + fmtF(pos[i], dec);
-    }
-    // Right column at 118 (was 125): "Y:-145.60" is 108 px, the old 105 px clipped.
-    g.setCursor(ox + 5 + (i % nCols) * (((230 - 5) / nCols) | 0),
-                oy + 20 + ((i / nCols) | 0) * 23);
-    g.print(s);
-  }
+  const key = neuDroKey();
+  if (_statusKeys.dro === key) return;
+  _statusKeys.dro = key;
+  neuDroLabels(10, 156);
+  neuDroValues(10, 156);
 }
 
 function updateStatusFeedSpindle() {
   if (currentPendantScreen !== PSCREEN_STATUS) return;
-  const feedRate = pendantMachine.feedRate;
-  const spindleRPM = pendantMachine.spindleRPM;
-  const spindleDir = pendantMachine.spindleDir;
-  const P = panel(230, 65, 5, 210);
-  const g = P.g, ox = P.ox, oy = P.oy;
-  g.fillRect(ox, oy, 230, 65, COLOR_BACKGROUND);
-
-  g.fillRoundRect(ox + 0, oy, 112, 65, 5, COLOR_DARKER_BG);
-  g.setTextColor(COLOR_GRAY_TEXT); g.setTextSize(1);
-  g.setCursor(ox + 5, oy + 3); g.print("FEED");
-  g.setTextColor(COLOR_ORANGE); g.setTextSize(2);
-  g.setCursor(ox + 5, oy + 25); g.print(feedRate);
-  g.setTextColor(COLOR_GRAY_TEXT); g.setTextSize(1);
-  let mmW = g.textWidth("mm/min");
-  g.setCursor(ox + 112 - 5 - mmW, oy + 50); g.print("mm/min");
-
-  g.fillRoundRect(ox + 118, oy, 112, 65, 5, COLOR_DARKER_BG);
-  g.setTextColor(COLOR_GRAY_TEXT); g.setTextSize(1);
-  g.setCursor(ox + 123, oy + 3); g.print("SPINDLE");
-  let dirW = g.textWidth(spindleDir);
-  g.setCursor(ox + 230 - 5 - dirW, oy + 3); g.print(spindleDir);
-  g.setTextColor(COLOR_GREEN); g.setTextSize(2);
-  g.setCursor(ox + 123, oy + 25); g.print(spindleRPM);
-  g.setTextColor(COLOR_GRAY_TEXT); g.setTextSize(1);
-  let rpmW = g.textWidth("RPM");
-  g.setCursor(ox + 230 - 5 - rpmW, oy + 50); g.print("RPM");
+  const m = pendantMachine;
+  const key = m.feedRate + "|" + m.spindleRPM + "|" + m.spindleDir + "|" + m.inInches;
+  if (_statusKeys.fs === key) return;
+  _statusKeys.fs = key;
+  neuFieldValue(10, 232, 106, 40, "Feed", String(Math.round(m.feedRate)), m.inInches ? "in/m" : "mm/m");
+  neuFieldValue(124, 232, 106, 40, "Spindle " + (m.spindleRPM > 0 ? m.spindleDir : ""), String(Math.round(m.spindleRPM)), "rpm");
 }
 
 function handleStatusTouch(x, y) {
-  if (isTouchInBounds(x, y, 5, 280, 112, 40)) currentPendantScreen = PSCREEN_MAIN_MENU;
-  else if (isTouchInBounds(x, y, 123, 280, 112, 40)) currentPendantScreen = PSCREEN_FLUIDNC;
+  const n = neuNavHit(STATUS_NAV, x, y);
+  if (n === "home") currentPendantScreen = PSCREEN_MAIN_MENU;
+  else if (n === "fluidnc") currentPendantScreen = PSCREEN_FLUIDNC;
 }

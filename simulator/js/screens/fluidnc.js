@@ -1,6 +1,15 @@
-/* screen_fluidnc.cpp port */
+/* screen_fluidnc.cpp — neumorphic layout
+ *   info well   y 38 h 162   six key/value rows: versions, network, free heap, link status
+ *   Connection  raised row -> Connection screen
+ *   Display     raised row: tap (or turn the dial) to flip the screen rotation
+ *   nav         Home | Status
+ */
 
-function enterFluidNC() { releasePanelSprites(); }
+const FNC_NAV = [NAV_HOME, { id: "status", label: "Status", icon: "status" }];
+const FNC_CONN_Y = 208, FNC_ROT_Y = 244, FNC_ROW_H = 30;
+let _fncKey = "";
+
+function enterFluidNC() { releasePanelSprites(); _fncKey = ""; }
 function exitFluidNC() {
   releasePanelSprites();
   if (pendantMachine.rotationDirty) {
@@ -9,100 +18,58 @@ function exitFluidNC() {
   }
 }
 
-function updateFluidNCDisplay() {
-  const connected = pendantConnected;
-  // Panel 1: version / network
-  {
-    const P = panel(230, 60, 5, 40);
-    const g = P.g, ox = P.ox, oy = P.oy;
-    g.fillRect(ox, oy, 230, 60, COLOR_BACKGROUND);
-    g.fillRoundRect(ox, oy, 230, 60, 5, COLOR_DARKER_BG);
-    g.setTextColor(COLOR_GRAY_TEXT); g.setTextSize(1);
-    g.setCursor(ox + 5, oy + 5); g.print("FluidDial-CYD");
-    g.setTextColor(COLOR_GREEN);
-    g.setCursor(ox + 5, oy + 17); g.print(pendantMachine.fluidDialVersion);
-    g.setTextColor(COLOR_GRAY_TEXT);
-    g.setCursor(ox + 5, oy + 35); g.print("FluidNC");
-    // "---" until the controller has actually reported its version, so an unread
-    // field can never be mistaken for a real one.
-    g.setTextColor(pendantMachine.fluidNCVersion ? COLOR_GREEN : COLOR_GRAY_TEXT);
-    g.setCursor(ox + 5, oy + 47); g.print(pendantMachine.fluidNCVersion || "---");
-    g.setTextColor(COLOR_GRAY_TEXT);
-    g.setCursor(ox + 115, oy + 5); g.print("IP ADDRESS");
-    g.setTextColor(pendantMachine.ipAddress.length ? COLOR_CYAN : COLOR_GRAY_TEXT);
-    g.setCursor(ox + 115, oy + 17); g.print(pendantMachine.ipAddress.length ? pendantMachine.ipAddress : "---");
-    // Network row — on Ethernet this names the link, because a wired controller
-    // never reports an SSID and a blank "WIFI SSID" row would just look broken.
-    const ssid = pendantMachine.wifiSSID;
-    const isEth = pendantMachine.netMode === "Ethernet";
-    const ethDown = isEth && (pendantMachine.netStatus || "").startsWith("Link down");
-    const netLabel = isEth ? "NETWORK" : "WIFI SSID";
-    const netValue = isEth ? (ethDown ? "Ethernet (no link)" : "Wired Ethernet")
-                           : (ssid.length ? ssid : "---");
-    const netColor = ethDown ? COLOR_ORANGE
-                   : (isEth || ssid.length) ? COLOR_CYAN
-                   : COLOR_GRAY_TEXT;
+function _fncRows() {
+  const m = pendantMachine;
+  const isEth = m.netMode === "Ethernet", ethDown = isEth && (m.netStatus || "").startsWith("Link down");
+  const has = (v) => v && v !== "---";
+  return [
+    ["FluidDial", m.fluidDialVersion, NEU_TEXT],
+    ["FluidNC", m.fluidNCVersion || "---", m.fluidNCVersion ? NEU_TEXT : NEU_TEXT3],
+    ["IP address", has(m.ipAddress) ? m.ipAddress : "---", has(m.ipAddress) ? NEU_TEXT : NEU_TEXT3],
+    [isEth ? "Network" : "WiFi SSID", isEth ? (ethDown ? "Ethernet, no link" : "Wired Ethernet") : (has(m.wifiSSID) ? m.wifiSSID : "---"),
+      ethDown ? NEU_HOLD : (isEth || has(m.wifiSSID)) ? NEU_TEXT : NEU_TEXT3],
+    ["Free heap", ((ESP.getFreeHeap() / 1024) | 0) + " KB", NEU_TEXT],
+    ["Link", m.connectionStatus, pendantConnected ? NEU_RUN : NEU_ALARM],
+  ];
+}
 
-    g.setTextColor(COLOR_GRAY_TEXT);
-    g.setCursor(ox + 115, oy + 35); g.print(netLabel);
-    g.setTextColor(netColor);
-    g.setCursor(ox + 115, oy + 47); g.print(netValue);
-  }
-  // Panel 2: resources
-  {
-    const P = panel(230, 70, 5, 186);
-    const g = P.g, ox = P.ox, oy = P.oy;
-    g.fillRect(ox, oy, 230, 70, COLOR_BACKGROUND);
-    g.fillRoundRect(ox, oy, 230, 70, 5, COLOR_DARKER_BG);
-    g.setTextColor(COLOR_GRAY_TEXT); g.setTextSize(1);
-    g.setCursor(ox + 5, oy + 5); g.print("FREE HEAP");
-    g.setTextColor(COLOR_ORANGE); g.setTextSize(2);
-    g.setCursor(ox + 5, oy + 20); g.print(((ESP.getFreeHeap() / 1024) | 0) + " KB");
-    g.setTextColor(COLOR_GRAY_TEXT); g.setTextSize(1);
-    g.setCursor(ox + 115, oy + 5); g.print("STATUS");
-    g.setTextColor(connected ? COLOR_GREEN : COLOR_RED);
-    g.setCursor(ox + 115, oy + 20); g.print(pendantMachine.connectionStatus);
-    g.setTextColor(COLOR_GRAY_TEXT);
-    g.setCursor(ox + 5, oy + 48); g.print("ROTATION");
-    g.setTextColor(COLOR_CYAN);
-    g.setCursor(ox + 5, oy + 58); g.print(pendantMachine.displayRotation);
-    g.setTextColor(COLOR_GRAY_TEXT);
-    g.setCursor(ox + 115, oy + 48); g.print("Jog Dial");
-    g.setTextColor(COLOR_CYAN);
-    g.setCursor(ox + 115, oy + 58); g.print("Rotate");
-  }
+function updateFluidNCDisplay() {
+  if (currentPendantScreen !== PSCREEN_FLUIDNC) return;
+  const rows = _fncRows(), key = JSON.stringify(rows) + pendantMachine.displayRotation;
+  if (key === _fncKey) return;
+  _fncKey = key;
+  display.fillRect(14, 42, 213, 155, NEU_WELL);
+  rows.forEach(([k, v, col], i) => {
+    const y = 44 + i * 26;
+    if (i) display.drawFastHLine(22, y - 2, 196, NEU_SH_DARK);
+    neuCaption(k, 22, y + 8);
+    neuText(neuFit(v, "B9", 120), 218, y + 17, "B9", col, "R");
+  });
+  _fncRow(FNC_ROT_Y, "Display", pendantMachine.displayRotation, "gear");
+}
+
+function _fncRow(y, label, value, icon) {
+  neuClear(10, y, 220, FNC_ROW_H);
+  neuRaised(10, y, 220, FNC_ROW_H, 10, 3);
+  NEU_ICON[icon](30, y + (FNC_ROW_H / 2 | 0), NEU_ACCENT);
+  neuText(label, 46, neuCapBase(y, FNC_ROW_H, "B9"), "B9", NEU_TEXT);
+  neuCaption(value, 202, y + 11, NEU_TEXT2, "R");
+  NEU_ICON.chevron(214, y + (FNC_ROW_H / 2 | 0), NEU_TEXT3);
 }
 
 function drawFluidNCScreen() {
-  display.fillScreen(COLOR_BACKGROUND);
-  drawTitle("FluidNC");
-
-  display.fillRoundRect(5, 108, 230, 70, 5, COLOR_DARKER_BG);
-  display.drawRoundRect(5, 108, 230, 70, 5, COLOR_CYAN);
-  const hint = (comms_active_mode() === "UART") ? "UART >" : "ESP-NOW >";
-  display.setTextColor(COLOR_CYAN); display.setTextSize(1);
-  display.setCursor(240 - 5 - display.textWidth(hint), 113);
-  display.print(hint);
-
-  display.setTextColor(COLOR_GRAY_TEXT); display.setTextSize(1);
-  display.setCursor(10, 113); display.print("CONNECTION");
-  display.setTextColor(COLOR_GRAY_TEXT); display.setTextSize(1);
-  display.setCursor(10, 130); display.print("Baud:");
-  display.setTextColor(COLOR_ORANGE); display.setTextSize(2);
-  display.setCursor(100, 127); display.print(pendantMachine.baudRate);
-  display.setTextColor(COLOR_GRAY_TEXT); display.setTextSize(1);
-  display.setCursor(10, 148); display.print("Port:");
-  display.setTextColor(COLOR_CYAN); display.setTextSize(1);
-  display.setCursor(10, 160); display.print(pendantMachine.port);
-
-  drawButton(5, 272, 112, 40, "Main Menu", COLOR_BLUE, COLOR_WHITE, 2);
-  drawButton(123, 272, 112, 40, "Status", COLOR_BLUE, COLOR_WHITE, 2);
-
+  neuHeader("FluidNC");
+  _fncKey = "";
+  neuInset(10, 38, 220, 162, 12, 3);
+  _fncRow(FNC_CONN_Y, "Connection", comms_active_mode() === "UART" ? "UART" : "ESP-NOW", "link");
   updateFluidNCDisplay();
+  neuNav(FNC_NAV);
 }
 
 function handleFluidNCTouch(x, y) {
-  if (isTouchInBounds(x, y, 5, 272, 112, 40)) currentPendantScreen = PSCREEN_MAIN_MENU;
-  else if (isTouchInBounds(x, y, 123, 272, 112, 40)) currentPendantScreen = PSCREEN_STATUS;
-  else if (isTouchInBounds(x, y, 5, 108, 230, 70)) currentPendantScreen = PSCREEN_CONNECTION;
+  if (isTouchInBounds(x, y, 10, FNC_CONN_Y, 220, FNC_ROW_H)) { currentPendantScreen = PSCREEN_CONNECTION; return; }
+  if (isTouchInBounds(x, y, 10, FNC_ROT_Y, 220, FNC_ROW_H)) { handleEncoderDelta(1); return; }   // same as a dial turn
+  const n = neuNavHit(FNC_NAV, x, y);
+  if (n === "home") currentPendantScreen = PSCREEN_MAIN_MENU;
+  else if (n === "status") currentPendantScreen = PSCREEN_STATUS;
 }

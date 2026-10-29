@@ -1,0 +1,8 @@
+<!doctype html><html><head><meta charset="utf-8"><title>render</title>
+<script src="../simulator/js/colors.js"></script><script src="../simulator/js/font.js"></script>
+<script src="../simulator/js/lgfx.js"></script><script src="js/gfxfonts.js"></script>
+<script src="js/neu.js"></script><script src="js/screens.js"></script></head>
+<body style="background:#222"><script>
+function renderScreen(name, opts){ const c=document.createElement('canvas'); c.width=240;c.height=320;
+ const g=new NeuGFX(c.getContext('2d'),240,320); useGfx(g); window[name](opts||{}); return c.toDataURL(); }
+</script></body></html>

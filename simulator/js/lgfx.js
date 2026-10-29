@@ -10,6 +10,10 @@
  *     LovyanGFX produces), so corner pixels land where they do on the device.
  *   • Real GLCD 5×7 bitmap font (font.js) with the device's metrics:
  *     textWidth == nchars*6*size, fontHeight == 8*size, no wrapping.
+ *   • Adafruit-GFX "GFXfont" fonts (FreeSans*, gfxfonts.js) via setFont(), with
+ *     LovyanGFX's GFXfont::getDefaultMetric() metrics: baseline = max glyph
+ *     ascent, fontHeight = max ascent + max descent.  As on the device, the
+ *     cursor y for a GFX font is the BASELINE; for the GLCD font it is the top.
  *   • Hard clipping at the 240×320 canvas edge — text/shapes that run off the
  *     panel get cut off here just as they would on the hardware.
  */
@@ -35,6 +39,7 @@ class LGFX {
     this._cx = 0;
     this._cy = 0;
     this._rotation = 0;
+    this._font = null;          // null = built-in GLCD 5x7 (LovyanGFX Font 0)
     ctx.imageSmoothingEnabled = false;
   }
 
@@ -185,8 +190,16 @@ class LGFX {
   setTextColor(c) { this._textColor = c; }
   setTextSize(s) { this._textSize = s; }
   setCursor(x, y) { this._cx = x | 0; this._cy = y | 0; }
-  fontHeight() { return 8 * this._textSize; }
-  textWidth(s) { return String(s).length * 6 * this._textSize; }
+  // setFont(GFXFONTS["FreeSansBold9pt7b"]) or setFont(null) for the GLCD font.
+  setFont(f) { this._font = f || null; }
+  fontHeight() { return this._font ? gfxMetrics(this._font).height * this._textSize : 8 * this._textSize; }
+  textWidth(s) {
+    s = String(s);
+    if (!this._font) return s.length * 6 * this._textSize;
+    const f = this._font; let w = 0;
+    for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); if (c >= f.first && c <= f.last) w += f.glyphs[c - f.first][3]; }
+    return w * this._textSize;
+  }
 
   print(value, decimals) {
     let s;
@@ -208,6 +221,7 @@ class LGFX {
   }
 
   _drawText(s) {
+    if (this._font) return this._drawGfxText(s);
     const size = this._textSize;
     const ctx = this.ctx;
     ctx.fillStyle = rgb565ToCss(this._textColor);
@@ -227,4 +241,31 @@ class LGFX {
     }
     this._cx += s.length * 6 * size;
   }
+
+  _drawGfxText(s) {
+    const f = this._font, ctx = this.ctx, sz = this._textSize;
+    ctx.fillStyle = rgb565ToCss(this._textColor);
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      if (c < f.first || c > f.last) continue;
+      const [off, w, h, adv, xo, yo] = f.glyphs[c - f.first];
+      let bit = 0, bits = 0, p = off;
+      for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) {
+        if (!(bit++ & 7)) bits = f.bitmap[p++];
+        if (bits & 0x80) ctx.fillRect(this._cx + (xo + xx) * sz, this._cy + (yo + yy) * sz, sz, sz);
+        bits <<= 1;
+      }
+      this._cx += adv * sz;
+    }
+  }
+}
+
+// LovyanGFX GFXfont::getDefaultMetric(): scan every glyph for the largest ascent
+// and descent.  Cached on the font object (C++: compute once per font).
+function gfxMetrics(f) {
+  if (f._m) return f._m;
+  let ab = 0, bb = 0;
+  for (const g of f.glyphs) { const a = -g[5]; if (a > ab) ab = a; const b = g[2] - a; if (b > bb) bb = b; }
+  f._m = { baseline: ab, height: ab + bb, cap: f.glyphs[72 - f.first][2] };   // cap = height of 'H'
+  return f._m;
 }

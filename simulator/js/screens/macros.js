@@ -1,4 +1,7 @@
-/* screen_macros.cpp port */
+/* screen_macros.cpp — neumorphic layout
+ *   crumb strip  macro source + page readout;  list well  5 macros
+ *   tap a macro to select it, then Run macro in the nav bar (Back cancels)
+ */
 
 function enterMacros() {
   releasePanelSprites();
@@ -30,122 +33,82 @@ function macroLabel(displayIndex) {
   return label;
 }
 
-function updateMacrosFileList() {
+let _macKey = "";
+function updateMacrosFileList(force) {
   if (currentPendantScreen !== PSCREEN_MACROS) return;
-  if (pendantMacros.loading && pendantMacros.loadStartMs !== 0 && millis() - pendantMacros.loadStartMs > 35000) {
-    pendantMacros.loading = false; pendantMacros.loadFailed = true;
-  }
-  // Footer first: it sits outside the list panel, so it must track count changes
-  // (a macro list arriving) independently of the list itself.
-  drawMacrosFooter();
-
-  const ox = 5, oy = 40;
-  display.fillRect(5, 40, 230, 200, COLOR_BACKGROUND);
-  drawListCrumb(ox, oy, pendantMacros.sourceFile || "macrocfg.json");
-
-  if (pendantMacros.loading) {
-    display.setTextColor(COLOR_GRAY_TEXT); display.setTextSize(2);
-    display.setCursor(ox + 45, oy + 100); display.print(pendantConnected ? "Loading..." : "Not connected.");
-  } else if (pendantMacros.loadFailed) {
-    display.setTextColor(COLOR_ORANGE); display.setTextSize(1);
-    display.setCursor(ox + 15, oy + 90); display.print("Couldn't load macros.");
-    display.setTextColor(COLOR_GRAY_TEXT);
-    display.setCursor(ox + 15, oy + 108); display.print("Tap Refresh to try again.");
-  } else if (pendantMacros.count === 0) {
-    display.setTextColor(COLOR_GRAY_TEXT); display.setTextSize(1);
-    display.setCursor(ox + 15, oy + 90); display.print("No macros found.");
-    display.setCursor(ox + 15, oy + 108); display.print("Add macros in FluidNC preferences.");
-  } else {
-    for (let i = 0; i < 5 && i < pendantMacros.count; i++) {
-      const displayIndex = i + pendantMacros.scrollOffset;
-      if (displayIndex >= pendantMacros.count) break;
-      let bg;
-      if (displayIndex === pendantMacros.selected && pendantMacros.pendingRun) bg = COLOR_DARK_GREEN;
-      else if (displayIndex === pendantMacros.selected) bg = COLOR_BUTTON_ACTIVE;
-      else bg = COLOR_BUTTON_GRAY;
-      const ry = oy + LIST_ROW_Y0 + i * LIST_ROW_PITCH;
-      display.fillRoundRect(ox, ry, 230, LIST_ROW_H, 8, bg);
-      display.setTextColor(COLOR_WHITE); display.setTextSize(1);
-      display.setCursor(ox + 5, ry + 11); display.print(macroLabel(displayIndex));
+  const m = pendantMacros;
+  if (m.loading && m.loadStartMs !== 0 && millis() - m.loadStartMs > 35000) { m.loading = false; m.loadFailed = true; }
+  const key = [m.loading, m.loadFailed, m.count, m.scrollOffset, m.selected, m.pendingRun, pendantConnected].join("|");
+  if (!force && key === _macKey) return;
+  _macKey = key;
+  const pages = m.count === 0 ? 0 : listPageCount(m.count);
+  neuListCrumb("macro", m.sourceFile || "macrocfg.json", listPageIndex(m.scrollOffset) + 1, pages, false);
+  neuListClear();
+  if (m.loading) neuListMessage(pendantConnected ? "Loading..." : "Not connected", null);
+  else if (m.loadFailed) neuListMessage("Couldn't load macros", "Tap Refresh to try again", NEU_HOLD);
+  else if (m.count === 0) neuListMessage("No macros found", "Add them in FluidNC preferences");
+  else {
+    for (let i = 0; i < LIST_ROWS; i++) {
+      const idx = i + m.scrollOffset;
+      if (idx >= m.count) break;
+      neuListRow(i, m.content[idx], "macro", m.pendingRun && idx === m.selected);
     }
   }
 }
 
-// Dial — pages the macro list one screen at a time, clamped.  The << / >> buttons
-// still step a single row; the dial is the fast way through a long list.
+// Dial pages the macro list one screen at a time, clamped.
 function handleMacrosDial(delta) {
   const next = listPageStep(delta, pendantMacros.count, pendantMacros.scrollOffset);
   if (next < 0) return;
   pendantMacros.scrollOffset = next;
   updateMacrosFileList();
-  drawMacrosFooter();
 }
+function drawMacrosFooter() {}
 
-// Own dirty check, mirroring the firmware — see drawSDFooter().
-let _macrosFooterLast = null;
-function drawMacrosFooter(force) {
-  const pages = listPageCount(pendantMacros.count);
-  const page  = listPageIndex(pendantMacros.scrollOffset) + 1;
-  const shown = pendantMacros.count === 0 ? 0 : pages;
-  const live  = pendantMacros.count > 0 && pages > 1;
-  const sig = `${page}/${shown}/${live}`;
-  if (!force && _macrosFooterLast === sig) return;
-  _macrosFooterLast = sig;
-  drawListFooter(242, page, shown, false, live);
+function macrosNav() {
+  if (pendantMacros.pendingRun) return [{ id: "cancel", icon: "back", w: 40 }, { id: "run", label: "Run macro", icon: "play", color: NEU_RUN }];
+  return [NAV_HOME, { id: "refresh", label: "Refresh", icon: "refresh" }];
 }
 
 function drawMacrosScreen() {
-  display.fillScreen(COLOR_BACKGROUND);
-  drawTitle("MACROS");
-  updateMacrosFileList();
-  drawMacrosFooter(true);   // fillScreen() wiped it — force past the dirty check
-  if (pendantMacros.pendingRun) {
-    drawButton(5, 282, 110, 36, "Cancel", COLOR_BUTTON_GRAY, COLOR_WHITE, 2);
-    drawButton(121, 282, 114, 36, "Run", COLOR_DARK_GREEN, COLOR_WHITE, 2);
-  } else {
-    drawButton(5, 282, 230, 36, "Main Menu", COLOR_BLUE, COLOR_WHITE, 2);
-  }
+  neuHeader("Macros");
+  neuListFrame();
+  updateMacrosFileList(true);
+  neuNav(macrosNav());
 }
 
 function handleMacrosTouch(x, y) {
-  for (let i = 0; i < 5; i++) {
-    if (isTouchInBounds(x, y, 5, listRowHitY(i), 230, listRowHitH())) {
-      const displayIndex = i + pendantMacros.scrollOffset;
-      if (displayIndex < pendantMacros.count) {
-        pendantMacros.selected = displayIndex;
-        pendantMacros.pendingRun = true;
-        drawMacrosScreen();
-      }
-      return;
+  const m = pendantMacros;
+  const row = neuListRowHit(x, y);
+  if (row >= 0) {
+    const idx = row + m.scrollOffset;
+    if (idx < m.count) {
+      if (m.pendingRun && m.selected === idx) m.pendingRun = false;   // tap again to deselect
+      else { m.selected = idx; m.pendingRun = true; }
+      drawMacrosScreen();
     }
-  }
-  // JOG hint and PAGE readout both advance one page, wrapping back to the first.
-  if (listFooterPageTap(x, y, 242)) {
-    const next = listPageAdvanceWrap(pendantMacros.count, pendantMacros.scrollOffset);
-    if (next >= 0) { pendantMacros.scrollOffset = next; updateMacrosFileList(); }
     return;
   }
-  if (isTouchInBounds(x, y, rowBtnX(3, 2), 242, rowBtnWAt(3, 2), 36)) {
-    if (pendantConnected) { _refreshMacros(); drawMacrosScreen(); }
+  if (neuListPageHit(x, y)) {
+    const next = listPageAdvanceWrap(m.count, m.scrollOffset);
+    if (next >= 0) { m.scrollOffset = next; updateMacrosFileList(); }
     return;
   }
-  if (pendantMacros.pendingRun) {
-    if (isTouchInBounds(x, y, 5, 282, 110, 36)) { pendantMacros.pendingRun = false; drawMacrosScreen(); return; }
-    if (isTouchInBounds(x, y, 121, 282, 114, 36)) {
-      if (pendantConnected && pendantMacros.selected >= 0) {
-        const fn = pendantMacros.filename[pendantMacros.selected];
-        let cmd;
-        if (fn.startsWith("/sd/")) cmd = "$SD/Run=" + fn.substring(4);
-        else if (fn.startsWith("/localfs/")) cmd = "$Localfs/Run=" + fn.substring(9);
-        else if (fn.startsWith("cmd:")) cmd = fn.substring(4);
-        else cmd = fn;
-        send_line(cmd);
-        pendantMacros.pendingRun = false;
-        currentPendantScreen = PSCREEN_STATUS;
-      }
-      return;
+  const n = neuNavHit(macrosNav(), x, y);
+  if (n === "home") currentPendantScreen = PSCREEN_MAIN_MENU;
+  else if (n === "refresh") { if (pendantConnected) { _refreshMacros(); drawMacrosScreen(); } }
+  else if (n === "cancel") { m.pendingRun = false; drawMacrosScreen(); }
+  else if (n === "run") {
+    if (pendantConnected && m.selected >= 0) {
+      const fn = m.filename[m.selected];
+      let cmd;
+      if (fn.startsWith("/sd/")) cmd = "$SD/Run=" + fn.substring(4);
+      else if (fn.startsWith("/localfs/")) cmd = "$Localfs/Run=" + fn.substring(9);
+      else if (fn.startsWith("cmd:")) cmd = fn.substring(4);
+      else cmd = fn;
+      send_line(cmd);
+      m.pendingRun = false;
+      currentPendantScreen = PSCREEN_STATUS;
     }
-  } else {
-    if (isTouchInBounds(x, y, 5, 282, 230, 36)) currentPendantScreen = PSCREEN_MAIN_MENU;
   }
 }

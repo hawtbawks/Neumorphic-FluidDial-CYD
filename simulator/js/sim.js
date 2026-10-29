@@ -395,6 +395,7 @@ function manageScreenSleep() {
 // ===== Refresh tick (firmware updates panels ~every 100 ms) =====
 function tick() {
   manageScreenSleep();
+  if (currentPendantScreen !== PSCREEN_SLEEP && currentPendantScreen !== PSCREEN_BOOT) neuHeaderUpdate();
   if (currentPendantScreen === PSCREEN_SLEEP) return;   // nothing to update while blank
   const u = SCREENS[currentPendantScreen].update;
   for (const fn of u) fn();

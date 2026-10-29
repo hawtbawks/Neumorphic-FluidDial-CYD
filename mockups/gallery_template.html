@@ -1,0 +1,151 @@
+<meta charset="utf-8">
+<title>FluidDial Neumorphic UI</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a bench of pendants — each mockup sits in a raised bezel, notes beneath, before/after toggle per card. */
+:root {
+  --bg: #2c3038; --raise-l: #464c58; --raise-d: #181a1f; --well: #25282f;
+  --fg: #e4e8ee; --fg2: #969eac; --fg3: #646c7a; --accent: #ff9630;
+  --f-display: "Barlow", "Helvetica Neue", Arial, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
+  --bg: #dfe3ea; --raise-l: #ffffff; --raise-d: #b4bbc7; --well: #d3d8e0;
+  --fg: #1f242c; --fg2: #4d5563; --fg3: #7a8392; --accent: #c8650a; color-scheme: light } }
+:root[data-theme="light"] {
+  --bg: #dfe3ea; --raise-l: #ffffff; --raise-d: #b4bbc7; --well: #d3d8e0;
+  --fg: #1f242c; --fg2: #4d5563; --fg3: #7a8392; --accent: #c8650a; color-scheme: light }
+body { background: var(--bg); color: var(--fg); font: 16px/1.5 var(--f-display); }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 32px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 40px; }
+header { display: grid; gap: 12px; max-width: 70ch; }
+.eyebrow { font: 600 12px/1 var(--f-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+h1 { font-size: clamp(32px, 6vw, 48px); line-height: 1.05; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 22px; margin: 0 0 12px; font-weight: 700; }
+header p { margin: 0; color: var(--fg2); }
+.sys { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+.panel { background: var(--bg); border-radius: 18px; padding: 20px;
+  box-shadow: 6px 6px 14px var(--raise-d), -6px -6px 14px var(--raise-l); min-width: 0; }
+.panel ul { margin: 0; padding-left: 18px; color: var(--fg2); display: grid; gap: 6px; }
+.panel b { color: var(--fg); font-weight: 600; }
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 10px; }
+.sw { display: grid; gap: 4px; font: 11px/1.2 var(--f-mono); color: var(--fg3); }
+.sw i { display: block; height: 30px; border-radius: 8px; box-shadow: inset 2px 2px 4px rgba(0,0,0,.35); }
+.toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.seg { display: inline-flex; padding: 4px; border-radius: 12px; background: var(--well);
+  box-shadow: inset 3px 3px 6px var(--raise-d), inset -2px -2px 5px var(--raise-l); }
+.seg button { font: 600 14px var(--f-display); color: var(--fg2); background: transparent; border: 0;
+  padding: 8px 14px; border-radius: 9px; cursor: pointer; }
+.seg button[aria-pressed="true"] { color: var(--accent); background: var(--bg);
+  box-shadow: 3px 3px 6px var(--raise-d), -2px -2px 5px var(--raise-l); }
+.seg button:focus-visible, .card button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hint { color: var(--fg3); font-size: 14px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 28px; }
+.card { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.bezel { position: relative; border-radius: 22px; padding: 12px; background: var(--bg);
+  box-shadow: 7px 7px 16px var(--raise-d), -7px -7px 16px var(--raise-l); justify-self: center; width: 100%; max-width: 264px; }
+.bezel canvas, .bezel img { display: block; width: 100%; height: auto; aspect-ratio: 3 / 4; image-rendering: pixelated; border-radius: 4px; background: #000; }
+.bezel .tag { position: absolute; top: 18px; right: 18px; font: 600 10px/1 var(--f-mono); letter-spacing: .1em;
+  padding: 4px 6px; border-radius: 6px; background: rgba(0,0,0,.6); color: #fff; }
+.card h3 { margin: 0; font-size: 17px; font-weight: 700; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.card h3 span { font: 400 11px var(--f-mono); color: var(--fg3); }
+.card p { margin: 0; color: var(--fg2); font-size: 14px; }
+.card button.flip { justify-self: start; font: 600 13px var(--f-display); color: var(--fg2); background: var(--bg);
+  border: 0; border-radius: 10px; padding: 7px 12px; cursor: pointer; box-shadow: 3px 3px 7px var(--raise-d), -3px -3px 7px var(--raise-l); }
+.card button.flip[aria-pressed="true"] { color: var(--accent); box-shadow: inset 3px 3px 6px var(--raise-d), inset -2px -2px 5px var(--raise-l); }
+@media (prefers-reduced-motion: no-preference) { .bezel canvas, .bezel img { transition: opacity .15s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">FluidDial-CYD · 240×320 · RGB565 · no anti-aliasing</div>
+    <h1>Neumorphic UI mockups</h1>
+    <p>Every screen is drawn pixel-for-pixel with the same rules as the panel: LovyanGFX FreeSans fonts, Adafruit-GFX shapes, RGB565 colour and stepped shadows built only from <code>fillRoundRect</code>. What you see here is what the CYD can draw.</p>
+  </header>
+
+  <section class="sys">
+    <div class="panel">
+      <h2>System</h2>
+      <ul>
+        <li><b>One surface.</b> Everything is extruded from one slate grey; light from the top-left.</li>
+        <li><b>Raised = you can press it.</b> Inset = a readout, a field, or the selected option.</li>
+        <li><b>Orange means focus.</b> Selected toggle, dial target, primary action. Nothing else.</li>
+        <li><b>State colour lives in the header chip</b> on every screen: teal Idle, green Run, amber Hold, red Alarm.</li>
+        <li><b>Home is always bottom-left.</b> Back sits beside it on sub-screens.</li>
+        <li><b>Start and Stop</b> are the only solid-filled buttons.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h2>Cost on the ESP32</h2>
+      <ul>
+        <li>Raised element: 7 <code>fillRoundRect</code> (depth 3). Inset: 5.</li>
+        <li>Six FreeSans sizes: about 25 KB of flash.</li>
+        <li>Shadows need 3 px of clear space, so the grid uses 8 px gaps and 10 px margins.</li>
+        <li>Captions keep the 5×7 GLCD font: it is crisper than FreeSans at 8 px.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h2>Palette</h2>
+      <div class="swatches" id="swatches"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="toolbar">
+      <div class="seg" role="group" aria-label="Show">
+        <button type="button" id="show-new" aria-pressed="true">New</button>
+        <button type="button" id="show-old" aria-pressed="false">Current</button>
+      </div>
+      <span class="hint">Or flip one screen at a time with its Compare button.</span>
+    </div>
+  </section>
+
+  <section class="grid" id="grid"></section>
+</div>
+
+<script>
+/*__JS__*/
+</script>
+<script>
+const CARDS = /*__CARDS__*/;
+const grid = document.getElementById("grid");
+const views = [];
+CARDS.forEach((c) => {
+  const card = document.createElement("article"); card.className = "card";
+  const bez = document.createElement("div"); bez.className = "bezel";
+  const cv = document.createElement("canvas"); cv.width = 240; cv.height = 320;
+  useGfx(new NeuGFX(cv.getContext("2d"), 240, 320)); window[c.fn](c.opts || {});
+  bez.appendChild(cv);
+  let img = null;
+  if (c.before) { img = document.createElement("img"); img.src = c.before; img.alt = "Current " + c.title + " screen"; img.hidden = true; bez.appendChild(img); }
+  const h = document.createElement("h3"); h.textContent = c.title;
+  const tag = document.createElement("span"); tag.textContent = "NEW"; h.appendChild(tag);
+  const p = document.createElement("p"); p.textContent = c.note;
+  card.append(bez, h, p);
+  const v = { cv, img, tag, btn: null };
+  if (img) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "flip"; b.textContent = "Compare with current";
+    b.setAttribute("aria-pressed", "false"); b.onclick = () => set(v, cv.hidden === false); v.btn = b; card.appendChild(b);
+  }
+  views.push(v); grid.appendChild(card);
+});
+function set(v, old) {
+  if (!v.img) return;
+  v.cv.hidden = old; v.img.hidden = !old; v.tag.textContent = old ? "CURRENT" : "NEW";
+  v.btn.setAttribute("aria-pressed", String(old)); v.btn.textContent = old ? "Show new" : "Compare with current";
+}
+const bNew = document.getElementById("show-new"), bOld = document.getElementById("show-old");
+bNew.onclick = () => { views.forEach((v) => set(v, false)); bNew.setAttribute("aria-pressed", "true"); bOld.setAttribute("aria-pressed", "false"); };
+bOld.onclick = () => { views.forEach((v) => set(v, true)); bOld.setAttribute("aria-pressed", "true"); bNew.setAttribute("aria-pressed", "false"); };
+// palette swatches straight from the design tokens
+const sw = document.getElementById("swatches");
+["BG", "FACE", "WELL", "SH_DARK", "SH_LIGHT", "TEXT", "TEXT2", "ACCENT", "IDLE", "RUN", "HOLD", "ALARM"].forEach((k) => {
+  const [r, g, b] = c565to888(NEU[k]);
+  const d = document.createElement("div"); d.className = "sw";
+  d.innerHTML = `<i style="background:rgb(${r},${g},${b})"></i>${k}<br>0x${NEU[k].toString(16).toUpperCase().padStart(4, "0")}`;
+  sw.appendChild(d);
+});
+</script>

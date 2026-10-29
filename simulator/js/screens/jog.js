@@ -1,12 +1,16 @@
-/* screen_jog_homing.cpp port */
+/* screen_jog_homing.cpp — neumorphic layout
+ *
+ *   axis rows   y 38..      one row per axis: tap a row to jog that axis with the dial.
+ *                           The selected row is pressed in; the others are raised.
+ *                           Big number = work position, small grey = machine position.
+ *   Step        segmented   0.01 / 0.1 / 1 / coarse.  The coarse slot cycles three states:
+ *                           tap 1 select · tap 2 the dial picks 10/50/100 · tap 3 back to jogging
+ *   Home        buttons     one per axis, plus All when there is room
+ *   nav         Home | Feed (tap: dial sets jog feed) | Work
+ */
 
-// HOME row label for slot i: one per reported axis, plus "ALL" when there is
-// room for it.  Mirrors the firmware — sized from numAx, never a fixed table.
-function homeLabel(numAx, i) { return (numAx < 4 && i === numAx) ? "ALL" : AXIS_NAMES[i]; }
+function homeLabel(numAx, i) { return (numAx < 4 && i === numAx) ? "All" : AXIS_NAMES[i]; }
 
-// Slots 0-2 are fixed fine increments; slot 3 is the dial box, holding whichever
-// coarse value pendantJog.coarseIdx selects.  Imperial mirrors metric one-for-one
-// in real terms (.001"~0.01mm ... 4.0"~100mm) using round inch numbers.
 const JOG_COARSE_COUNT = 3;
 const kCoarseLabelsMm = ["10", "50", "100"];
 const kCoarseValuesMm = [10.0, 50.0, 100.0];
@@ -14,71 +18,44 @@ const kCoarseLabelsIn = [".5", "2.0", "4.0"];
 const kCoarseValuesIn = [0.5, 2.0, 4.0];
 
 function currentIncrements() {
-  const s = { labels: [], values: [] };
   const ci = constrain(pendantJog.coarseIdx, 0, JOG_COARSE_COUNT - 1);
-  if (pendantMachine.inInches) {
-    s.labels = [".001", ".010", ".100", kCoarseLabelsIn[ci]];
-    s.values = [0.001, 0.010, 0.100, kCoarseValuesIn[ci]];
-  } else {
-    s.labels = ["0.01", "0.1", "1", kCoarseLabelsMm[ci]];
-    s.values = [0.01, 0.1, 1.0, kCoarseValuesMm[ci]];
-  }
-  return s;
+  if (pendantMachine.inInches) return { labels: [".001", ".010", ".100", kCoarseLabelsIn[ci]], values: [0.001, 0.010, 0.100, kCoarseValuesIn[ci]] };
+  return { labels: ["0.01", "0.1", "1", kCoarseLabelsMm[ci]], values: [0.01, 0.1, 1.0, kCoarseValuesMm[ci]] };
 }
-
 function jogApplyCoarseIncrement() {
   if (pendantJog.selectedIncrement !== 3) return;
   pendantJog.increment = currentIncrements().values[3];
 }
 
-const SPD_X = 80, SPD_W = 80, SPD_Y = 277, SPD_H = 40;
-
-// Button rows use the shared rowBtnX()/rowBtnWAt() grid from helpers.js, so HOME,
-// JOG AXIS and the increment row all span 5..235 and align with each other.
-const ROW_H = 38;
-const HOME_Y = 115, AXIS_Y = 173;
-
-// Increment row: 4 slots on the shared grid — rowBtnW(4) === 56, pitch 58.
-const INC_Y = 231, INC_H = ROW_H;
-const INC_W = 56;
-function incX(i) { return rowBtnX(4, i); }
-
-// Axis to restore when the coarse dial box hands the encoder back to jogging.
-let _incDialPrevAxis = 0;
-
-// Slot 3 is the coarse dial box — adjustable-field styling so it reads as
-// something the encoder drives, yellow while incDialMode is live.
-function drawIncDialButton() {
-  const selected = pendantJog.selectedIncrement === 3;
-  const active = pendantJog.incDialMode;
-  const incs = currentIncrements();
-  const bg = active ? PROBE_SEL_BG : (selected ? COLOR_ORANGE : COLOR_BUTTON_GRAY);
-  const bdr = active ? PROBE_C_YELLOW : PROBE_C_TAPBDR;
-  const x = incX(3);
-  display.fillRoundRect(x, INC_Y, INC_W, INC_H, 5, bg);
-  display.drawRoundRect(x, INC_Y, INC_W, INC_H, 5, bdr);
-  display.setTextSize(1);
-  display.setTextColor(active ? PROBE_C_YELLOW : COLOR_WHITE);
-  const lw = display.textWidth("DIAL");
-  display.setCursor(x + ((INC_W - lw) / 2 | 0), INC_Y + 5);
-  display.print("DIAL");
-  const v = incs.labels[3];
-  display.setTextSize(2);
-  display.setTextColor(active ? PROBE_C_YELLOW : COLOR_WHITE);
-  const vw = display.textWidth(v);
-  display.setCursor(x + ((INC_W - vw) / 2 | 0), INC_Y + 17);
-  display.print(v);
+// ---- geometry: depends on the axis count ----
+function jogLayout() {
+  const n = pendantMachine.numAxes;
+  const rowH = n <= 3 ? 34 : n === 4 ? 28 : 20, pitch = rowH + (n <= 4 ? 6 : 4);
+  const rowsEnd = 38 + n * pitch - (pitch - rowH);
+  const compact = n > 4;
+  const stepCapY = rowsEnd + 8;
+  const stepY = compact ? rowsEnd + 18 : rowsEnd + 20, stepH = 34;
+  const homeCapY = stepY + stepH + 8;
+  const homeY = compact ? stepY + stepH + 10 : homeCapY + 12;
+  const homeH = Math.min(34, 270 - homeY);
+  return { n, rowH, pitch, stepCapY, stepY, stepH, homeCapY, homeY, homeH, compact };
 }
-
-function redrawJogSpeedButton() {
-  // Adjustable-field style, matching the tap-to-edit buttons on the Probe
-  // screens: a bordered box with a small label on top and the value below; the
-  // border + value highlight (yellow) while speed-dial mode is active.
-  const active = pendantJog.speedDialMode;
+function jogRowY(i) { const L = jogLayout(); return 38 + i * L.pitch; }
+function jogHomeLayout() {
+  const L = jogLayout(), n = L.n, numHome = n < 4 ? n + 1 : n;
+  const gap = 8, w = ((220 - gap * (numHome - 1)) / numHome) | 0;
+  const out = [];
+  for (let i = 0; i < numHome; i++) out.push({ x: 10 + i * (w + gap), w: i === numHome - 1 ? 230 - (10 + i * (w + gap)) : w });
+  return out;
+}
+function jogNav() {
   const spd = pendantMachine.inInches ? pendantJog.jogSpeedIn : pendantJog.jogSpeedMm;
-  const unit = pendantMachine.inInches ? "ipm" : "mm/m";
-  probeDrawKVTouch(SPD_X, SPD_Y, SPD_W, SPD_H, "SPEED", spd, unit, COLOR_GREEN, active, 0);
+  return [NAV_HOME, { id: "speed", label: "F " + spd, icon: "gauge", w: 100, on: pendantJog.speedDialMode },
+          { id: "work", label: "Work" }];
 }
+
+let _jogKey = "";
+let _incDialPrevAxis = 0;
 
 function enterJogHoming() {
   releasePanelSprites();
@@ -88,230 +65,158 @@ function enterJogHoming() {
     pendantJog.incDialMode = false;
     pendantJog.selectedAxis = 0;
   }
-  releasePanelSprites();
 }
 function exitJogHoming() { releasePanelSprites(); }
 
-// Redraws just the "JOG INCREMENT (unit) - mode" label row — refreshes on axis
-// change (A → "deg", X/Y/Z → "mm"/"in") without a full-screen redraw.
-function redrawJogIncrementLabel() {
-  display.fillRect(5, 219, 230, 9, COLOR_BACKGROUND);
-  display.setTextSize(1);
-  display.setCursor(5, 219);
-  if (pendantMachine.status.startsWith("Alarm")) {
-    display.setTextColor(TFT_RED);
-    display.print("JOG INCREMENT  *** " + pendantMachine.status + " ***");
-  } else {
-    display.setTextColor(COLOR_GRAY_TEXT);
-    const unitStr = pendantJog.selectedAxis === 3 ? "deg" : (pendantMachine.inInches ? "in" : "mm");
-    display.print("JOG INCREMENT (" + unitStr + ")");
-  }
-}
-
 function drawJogHomingScreen() {
-  display.fillScreen(COLOR_BACKGROUND);
-  drawTitle("JOG & HOMING");
-  display.fillRoundRect(5, 40, 230, 55, 5, COLOR_DARKER_BG);
-  updateJogAxisDisplay();
-
-  const numAx = pendantMachine.numAxes;
-  display.setTextColor(COLOR_GRAY_TEXT); display.setTextSize(1);
-  display.setCursor(5, 103); display.print("HOME");
-  {
-    const numHome = numAx < 4 ? numAx + 1 : numAx;
-    for (let i = 0; i < numHome; i++) {
-      const sz = (i === numAx && numAx < 4) ? 2 : 3;
-      drawButton(rowBtnX(numHome, i), HOME_Y, rowBtnWAt(numHome, i), ROW_H,
-                 homeLabel(numAx, i), COLOR_DARK_GREEN, COLOR_WHITE, sz);
-    }
-  }
-
-  display.setTextColor(COLOR_GRAY_TEXT); display.setTextSize(1);
-  display.setCursor(5, 161); display.print("JOG AXIS");
-  for (let i = 0; i < numAx; i++) {
-    const bg = (!pendantJog.speedDialMode && i === pendantJog.selectedAxis) ? COLOR_ORANGE : COLOR_BUTTON_GRAY;
-    drawButton(rowBtnX(numAx, i), AXIS_Y, rowBtnWAt(numAx, i), ROW_H, AXIS_NAMES[i], bg, COLOR_WHITE, 3);
-  }
-
+  neuHeader("Jog");
+  _jogKey = "";
+  redrawJogAxisButtons();
   redrawJogIncrementLabel();
-
-  {
-    const incs = currentIncrements();
-    for (let i = 0; i < 3; i++) {
-      const bg = i === pendantJog.selectedIncrement ? COLOR_ORANGE : COLOR_BUTTON_GRAY;
-      drawButton(incX(i), INC_Y, INC_W, INC_H, incs.labels[i], bg, COLOR_WHITE, 2);
-    }
-    drawIncDialButton();   // slot 3 — coarse dial box
-  }
-
-  drawButton(5, SPD_Y, 73, SPD_H, "Main Menu", COLOR_BLUE, COLOR_WHITE, 1);
-  redrawJogSpeedButton();
-  drawButton(162, SPD_Y, 73, SPD_H, "Work Area", COLOR_BLUE, COLOR_WHITE, 1);
+  redrawJogIncrementButtons();
+  const L = jogLayout();
+  if (!L.compact) neuCaption("Home", 12, L.homeCapY);
+  const hl = jogHomeLayout();
+  hl.forEach((b, i) => neuButton(b.x, L.homeY, b.w, L.homeH, homeLabel(L.n, i), { color: i < L.n ? NEU_AX[i] : NEU_HOME }));
+  neuNav(jogNav());
 }
 
+// One axis row.  Selected = inset with the DIAL marker; otherwise raised with the machine position.
+function _jogRow(i, full) {
+  const L = jogLayout(), y = jogRowY(i), on = i === pendantJog.selectedAxis;
+  const font = L.rowH >= 28 ? "B12" : "B9";
+  if (full) { neuClear(10, y, 220, L.rowH); if (on) neuInset(10, y, 220, L.rowH, 10, 3); else neuRaised(10, y, 220, L.rowH, 10, 3); }
+  else display.fillRect(on ? 14 : 12, y + (on ? 4 : 2), on ? 211 : 216, L.rowH - (on ? 6 : 4), on ? NEU_WELL : NEU_FACE);
+  const base = neuCapBase(y, L.rowH, font);
+  const homing = pendantJog.homingAxis === i;
+  neuText(AXIS_NAMES[i], 22, base, font, NEU_AX[i]);
+  neuText(fmtF(pendantMachine.wpos[i], pendantMachine.inInches ? 4 : 3), 158, base, font, on ? NEU_TEXT : NEU_TEXT2, "R");
+  const capY = y + ((L.rowH - 8) / 2 | 0);
+  if (homing) neuCaption("Homing", 218, capY, NEU_HOME, "R");
+  else if (on) { neuCaption("Dial", 218, capY - (L.rowH >= 28 ? 4 : 0), NEU_ACCENT, "R"); if (L.rowH >= 28) display.fillRoundRect(196, capY + 7, 22, 3, 1, NEU_ACCENT); }
+  else neuCaption(fmtF(pendantMachine.mpos[i], 1), 218, capY, NEU_TEXT3, "R");
+}
+
+// Called every 100 ms: repaints only the row contents whose numbers changed.
 function updateJogAxisDisplay() {
   if (currentPendantScreen !== PSCREEN_JOG_HOMING) return;
-  // MACHINE coordinates (mpos[]).
-  const pos = pendantMachine.mpos;
-  const P = panel(230, 55, 5, 40);
-  const g = P.g, ox = P.ox, oy = P.oy;
-  g.fillRect(ox, oy, 230, 55, COLOR_DARKER_BG);
-
-  if (pendantJog.speedDialMode) {
-    g.setTextColor(COLOR_GREEN); g.setTextSize(1);
-    let lw = g.textWidth("JOG SPEED");
-    g.setCursor(ox + 115 - (lw / 2 | 0), oy + 5); g.print("JOG SPEED");
-    const speedStr = pendantMachine.inInches
-      ? "F:" + pendantJog.jogSpeedIn + " ipm"
-      : "F:" + pendantJog.jogSpeedMm + " mm/m";
-    g.setTextSize(2);
-    let sw = g.textWidth(speedStr);
-    g.setCursor(ox + 115 - (sw / 2 | 0), oy + 20); g.print(speedStr);
-    g.setTextColor(COLOR_GRAY_TEXT); g.setTextSize(1);
-    let hw = g.textWidth("Select an axis to jog");
-    g.setCursor(ox + 115 - (hw / 2 | 0), oy + 42); g.print("Select an axis to jog");
-  } else if (pendantJog.incDialMode) {
-    // Coarse dial mode — mirrors the speed panel so the encoder's job is never
-    // ambiguous: it's stepping the increment, not moving the machine.
-    const incs = currentIncrements();
-    const unit = pendantJog.selectedAxis === 3 ? "deg" : (pendantMachine.inInches ? "in" : "mm");
-    g.setTextColor(PROBE_C_YELLOW); g.setTextSize(1);
-    let lw = g.textWidth("JOG INCREMENT");
-    g.setCursor(ox + 115 - (lw / 2 | 0), oy + 5); g.print("JOG INCREMENT");
-    const incStr = incs.labels[3] + " " + unit;
-    g.setTextSize(2);
-    let sw = g.textWidth(incStr);
-    g.setCursor(ox + 115 - (sw / 2 | 0), oy + 20); g.print(incStr);
-    // Name the toggle explicitly — the second tap is the quick way back to jogging.
-    g.setTextColor(COLOR_GRAY_TEXT); g.setTextSize(1);
-    const hint = "Tap DIAL again to jog";
-    let hw2 = g.textWidth(hint);
-    g.setCursor(ox + 115 - (hw2 / 2 | 0), oy + 42); g.print(hint);
-  } else {
-    const inAlarm = pendantMachine.status.startsWith("Alarm");
-    const dispAxis = pendantJog.homingAxis >= 0 ? pendantJog.homingAxis : pendantJog.selectedAxis;
-    const decPlaces = pendantMachine.inInches ? 4 : 2;
-    // A axis (rotary) → no "mm"/"in"; a degree symbol is drawn after the value.
-    const isAAxis = dispAxis === 3;
-    const val = fmtF(pos[dispAxis], decPlaces);
-    let mainLine;
-    if (inAlarm) mainLine = `${AXIS_NAMES[dispAxis]} ${val} ${pendantMachine.status}`;
-    else if (isAAxis) mainLine = `${AXIS_NAMES[dispAxis]} ${val}`;
-    else mainLine = `${AXIS_NAMES[dispAxis]} ${val} ${pendantMachine.inInches ? "in" : "mm"}`;
-    g.setTextColor(inAlarm ? TFT_RED : COLOR_GREEN); g.setTextSize(3);
-    g.setCursor(ox + 5, oy + 5); g.print(mainLine);
-    if (isAAxis && !inAlarm) {
-      const iconX = ox + 5 + g.textWidth(mainLine) + 6;
-      g.drawCircle(iconX, oy + 8, 3, COLOR_GREEN);
-      g.drawCircle(iconX, oy + 8, 2, COLOR_GREEN);
-    }
-
-    g.setTextColor(COLOR_GRAY_TEXT); g.setTextSize(1);
-    const numAx = pendantMachine.numAxes;
-    const colSpacing = numAx > 1 ? (230 / (numAx - 1)) | 0 : 230;
-    let col = 5;
-    for (let i = 0; i < numAx; i++) {
-      if (i === dispAxis) continue;
-      g.setCursor(ox + col, oy + 38);
-      g.print(`${AXIS_NAMES[i]}:${fmtF(pos[i], 2)}`);
-      col += colSpacing;
-    }
-  }
+  const key = neuDroKey() + pendantJog.homingAxis + pendantJog.selectedAxis;
+  if (key === _jogKey) return;
+  _jogKey = key;
+  for (let i = 0; i < pendantMachine.numAxes; i++) _jogRow(i, false);
 }
-
 function redrawJogAxisButtons() {
   if (currentPendantScreen !== PSCREEN_JOG_HOMING) return;
-  const numAx = pendantMachine.numAxes;
-  for (let i = 0; i < numAx; i++) {
-    const bg = (!pendantJog.speedDialMode && i === pendantJog.selectedAxis) ? COLOR_ORANGE : COLOR_BUTTON_GRAY;
-    drawButton(rowBtnX(numAx, i), AXIS_Y, rowBtnWAt(numAx, i), ROW_H, AXIS_NAMES[i], bg, COLOR_WHITE, 3);
-  }
-  updateJogAxisDisplay();
+  for (let i = 0; i < pendantMachine.numAxes; i++) _jogRow(i, true);
+  _jogKey = neuDroKey() + pendantJog.homingAxis + pendantJog.selectedAxis;
+}
+
+// Caption row above the step control: unit, plus what the dial is doing right now.
+function redrawJogIncrementLabel() {
+  const L = jogLayout(), y = L.stepCapY;
+  display.fillRect(10, y - 1, 220, 10, NEU_BG);
+  const unit = pendantJog.selectedAxis === 3 ? "deg" : (pendantMachine.inInches ? "in" : "mm");
+  neuCaption("Step " + unit, 12, y);
+  if (pendantMachine.status.startsWith("Alarm")) neuCaption("Alarm: unlock to jog", 228, y, NEU_ALARM, "R");
+  else if (pendantJog.incDialMode) neuCaption("Dial picks step", 228, y, NEU_ACCENT, "R");
+  else if (pendantJog.speedDialMode) neuCaption("Dial sets feed", 228, y, NEU_ACCENT, "R");
 }
 
 function redrawJogIncrementButtons() {
   if (currentPendantScreen !== PSCREEN_JOG_HOMING) return;
-  const incs = currentIncrements();
-  for (let i = 0; i < 3; i++) {
-    const bg = i === pendantJog.selectedIncrement ? COLOR_ORANGE : COLOR_BUTTON_GRAY;
-    drawButton(incX(i), INC_Y, INC_W, INC_H, incs.labels[i], bg, COLOR_WHITE, 2);
-  }
-  drawIncDialButton();   // slot 3 — coarse dial box
+  const L = jogLayout(), incs = currentIncrements();
+  neuClear(10, L.stepY, 220, L.stepH);
+  if (pendantJog.incDialMode) display.drawRoundRect(7, L.stepY - 3, 226, L.stepH + 6, 13, NEU_ACCENT);
+  neuSegmented(10, L.stepY, 220, L.stepH, incs.labels, pendantJog.selectedIncrement);
+  // coarse slot: three dots show which of 10/50/100 it holds
+  const seg = neuSegLayout(10, 220, 4)[3], cx = seg.x + (seg.w / 2 | 0);
+  for (let k = 0; k < JOG_COARSE_COUNT; k++)
+    display.fillRect(cx - 7 + k * 6, L.stepY + L.stepH - 9, 3, 2, k === pendantJog.coarseIdx ? NEU_ACCENT : NEU_TEXT3);
+  redrawJogIncrementLabel();
+}
+
+function redrawJogSpeedButton() {
+  if (currentPendantScreen !== PSCREEN_JOG_HOMING) return;
+  const lay = neuNavLayout(jogNav());
+  neuNavButton(lay[1].x, lay[1].w, lay[1].it);
+  redrawJogIncrementLabel();
 }
 
 function handleJogHomingTouch(x, y) {
-  const numAx = pendantMachine.numAxes;
-  {
-    const numHome = numAx < 4 ? numAx + 1 : numAx;
-    for (let i = 0; i < numHome; i++) {
-      if (isTouchInBounds(x, y, rowBtnX(numHome, i), HOME_Y, rowBtnWAt(numHome, i), ROW_H)) {
+  const L = jogLayout(), numAx = L.n;
+  // Home row
+  if (y >= L.homeY - 4 && y <= L.homeY + L.homeH + 4) {
+    const hl = jogHomeLayout();
+    for (let i = 0; i < hl.length; i++) {
+      if (x >= hl[i].x - 4 && x <= hl[i].x + hl[i].w + 4) {
         if (!pendantConnected) return;
         if (i === numAx) { send_line("$H"); pendantJog.homingAxis = 0; }
-        else { const an = ["X", "Y", "Z", "A"]; send_line("$H" + an[i]); pendantJog.homingAxis = i; }
-        updateJogAxisDisplay();
+        else { send_line("$H" + AXIS_NAMES[i]); pendantJog.homingAxis = i; }
+        redrawJogAxisButtons();
         return;
       }
     }
   }
+  // Axis rows
   for (let i = 0; i < numAx; i++) {
-    if (isTouchInBounds(x, y, rowBtnX(numAx, i), AXIS_Y, rowBtnWAt(numAx, i), ROW_H)) {
-      const leavingIncDial = pendantJog.incDialMode;
+    const ry = jogRowY(i);
+    if (y >= ry - 3 && y < ry + L.pitch - 3 && x >= 10 && x <= 230) {
+      const leavingDial = pendantJog.incDialMode || pendantJog.speedDialMode;
       pendantJog.speedDialMode = false;
-      pendantJog.incDialMode = false;   // picking an axis hands the dial back to jogging
+      pendantJog.incDialMode = false;
       pendantJog.selectedAxis = i;
       pendantJog.homingAxis = -1;
       redrawJogAxisButtons();
-      redrawJogSpeedButton();
-      if (leavingIncDial) redrawJogIncrementButtons();
-      redrawJogIncrementLabel();   // A<->X/Y/Z changes the unit (deg vs mm/in)
+      if (leavingDial) { redrawJogIncrementButtons(); redrawJogSpeedButton(); }
+      redrawJogIncrementLabel();
       return;
     }
   }
-  // Slots 0-2 are plain picks.  Slot 3 is the coarse dial box, which walks three
-  // states so a tap can never take the encoder away mid-jog:
-  //   tap 1 (not yet selected) — just SELECT the coarse value; you keep jogging
-  //   tap 2 (already selected) — encoder steps 10/50/100 (axis deselected)
-  //   tap 3 (adjusting)        — back to jogging, restoring the axis you were on
-  for (let i = 0; i < 4; i++) {
-    if (isTouchInBounds(x, y, incX(i), INC_Y, INC_W, INC_H)) {
-      const wasSelected = pendantJog.selectedIncrement === i;
-      pendantJog.selectedIncrement = i;
-      pendantJog.increment = currentIncrements().values[i];
-      saveJogPrefs();
-      if (i === 3) {
-        if (!wasSelected) {
-          pendantJog.incDialMode = false;             // tap 1 — select only
-        } else if (pendantJog.incDialMode) {
-          // tap 3 — back to jogging with the value just set.
-          pendantJog.incDialMode = false;
-          pendantJog.selectedAxis = constrain(_incDialPrevAxis, 0, pendantMachine.numAxes - 1);
-        } else {
-          // tap 2 — the encoder now steps the coarse value.
-          _incDialPrevAxis = pendantJog.selectedAxis >= 0 ? pendantJog.selectedAxis : 0;
-          pendantJog.incDialMode = true;
-          pendantJog.speedDialMode = false;
-          pendantJog.selectedAxis = -1;
-        }
-        redrawJogAxisButtons();
-        redrawJogSpeedButton();
-      } else if (pendantJog.incDialMode) {
+  // Step segmented control
+  const seg = neuSegHit(10, L.stepY, 220, L.stepH, 4, x, y);
+  if (seg >= 0) {
+    const i = seg, wasSelected = pendantJog.selectedIncrement === i;
+    pendantJog.selectedIncrement = i;
+    pendantJog.increment = currentIncrements().values[i];
+    saveJogPrefs();
+    if (i === 3) {
+      if (!wasSelected) pendantJog.incDialMode = false;                       // tap 1: select
+      else if (pendantJog.incDialMode) {                                      // tap 3: back to jogging
         pendantJog.incDialMode = false;
+        pendantJog.selectedAxis = constrain(_incDialPrevAxis, 0, numAx - 1);
+      } else {                                                                // tap 2: dial picks the step
+        _incDialPrevAxis = pendantJog.selectedAxis >= 0 ? pendantJog.selectedAxis : 0;
+        pendantJog.incDialMode = true;
+        pendantJog.speedDialMode = false;
+        pendantJog.selectedAxis = -1;
       }
-      redrawJogIncrementButtons();
-      return;
+      redrawJogAxisButtons();
+      redrawJogSpeedButton();
+    } else if (pendantJog.incDialMode) {
+      pendantJog.incDialMode = false;
+      pendantJog.selectedAxis = constrain(_incDialPrevAxis, 0, numAx - 1);
+      redrawJogAxisButtons();
     }
-  }
-  if (isTouchInBounds(x, y, SPD_X, SPD_Y, SPD_W, SPD_H)) {
-    const leavingIncDial = pendantJog.incDialMode;
-    pendantJog.speedDialMode = true;
-    pendantJog.incDialMode = false;   // only one dial mode at a time
-    pendantJog.selectedAxis = -1;
-    redrawJogAxisButtons();
-    redrawJogSpeedButton();
-    if (leavingIncDial) redrawJogIncrementButtons();
-    updateJogAxisDisplay();
+    redrawJogIncrementButtons();
     return;
   }
-  if (isTouchInBounds(x, y, 5, SPD_Y, 73, SPD_H)) { currentPendantScreen = PSCREEN_MAIN_MENU; return; }
-  if (isTouchInBounds(x, y, 162, SPD_Y, 73, SPD_H)) { currentPendantScreen = PSCREEN_PROBING_WORK; return; }
+  const n = neuNavHit(jogNav(), x, y);
+  if (n === "home") { currentPendantScreen = PSCREEN_MAIN_MENU; return; }
+  if (n === "work") { currentPendantScreen = PSCREEN_PROBING_WORK; return; }
+  if (n === "speed") {
+    // Tap toggles: first tap hands the dial to the feed, second tap gives it back.
+    if (pendantJog.speedDialMode) {
+      pendantJog.speedDialMode = false;
+      pendantJog.selectedAxis = constrain(_incDialPrevAxis, 0, numAx - 1);
+    } else {
+      _incDialPrevAxis = pendantJog.selectedAxis >= 0 ? pendantJog.selectedAxis : _incDialPrevAxis;
+      const leavingInc = pendantJog.incDialMode;
+      pendantJog.speedDialMode = true;
+      pendantJog.incDialMode = false;
+      pendantJog.selectedAxis = -1;
+      if (leavingInc) redrawJogIncrementButtons();
+    }
+    redrawJogAxisButtons();
+    redrawJogSpeedButton();
+  }
 }
