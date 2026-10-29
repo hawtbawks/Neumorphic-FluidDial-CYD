@@ -463,6 +463,11 @@ void neuNav(const NeuNavItem* items, int n) {
     for (int i = 0; i < n; i++) neuNavButton(lay[i].x, lay[i].w, items[i]);
 }
 
+void neuNavReplace(const NeuNavItem* items, int n) {
+    neuFillRect(0, NEU_NAV_Y - NEU_DEPTH - 1, 240, 320 - (NEU_NAV_Y - NEU_DEPTH - 1), NEU_BG);
+    neuNav(items, n);
+}
+
 void neuNavButton(int x, int w, const NeuNavItem& it) {
     NeuBtnStyle o;
     o.color = it.color ? it.color : (it.primary ? NEU_ACCENT : NEU_TEXT2);
@@ -730,6 +735,21 @@ void neuListRow(int i, const char* label, NeuRowKind kind, bool sel) {
     const int     maxW = kind == NEU_ROW_DIR ? 150 : 166;
     neuText(neuFit(label, font, maxW), 48, neuCapBase(y, NEU_LIST_ROW_H - 4, font), font, sel ? NEU_TEXT : NEU_TEXT2);
     if (kind == NEU_ROW_DIR) neuIcon(ICON_CHEVRON, 212, cy, NEU_TEXT3);
+}
+
+void neuListPaint(void (*drawBand)(int band)) {
+    for (int b = 0; b < LIST_ROWS; b++) {
+        // Band 0 starts where neuListClear() does, clear of the inset's ramp.
+        const int y = b == 0 ? NEU_LIST_WELL_Y + 4 : neuListRowY(b) - 3;
+        const int h = neuListRowY(b + 1) - 3 - y;
+        neuPanelBegin(14, y, 213, h);
+        neuFillRect(14, y, 213, h, NEU_WELL);
+        drawBand(b);
+        neuPanelEnd();
+    }
+    // The strip under the last band never holds content; keep it flat.
+    const int tail = neuListRowY(LIST_ROWS) - 3;
+    neuFillRect(14, tail, 213, NEU_LIST_WELL_Y + NEU_LIST_WELL_H - 3 - tail, NEU_WELL);
 }
 
 void neuListMessage(const char* line1, const char* line2, uint16_t color) {

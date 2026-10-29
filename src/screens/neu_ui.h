@@ -153,6 +153,8 @@ struct NeuSpan { int x, w; };
 void neuNavLayout(const NeuNavItem* items, int n, NeuSpan* out);
 void neuNav(const NeuNavItem* items, int n);
 void neuNavButton(int x, int w, const NeuNavItem& it);
+// Swap the nav bar for a different set of items (clears the old layout's gaps).
+void neuNavReplace(const NeuNavItem* items, int n);
 // Returns the id of the nav item under (x,y), or NAV_ID_NONE.
 int  neuNavHit(const NeuNavItem* items, int n, int x, int y);
 
@@ -244,3 +246,10 @@ void neuListCrumb(NeuIcon icon, const char* text, int page, int pages, bool trun
 void neuListClear();
 void neuListRow(int i, const char* label, NeuRowKind kind, bool sel);
 void neuListMessage(const char* line1, const char* line2, uint16_t color = NEU_TEXT2);
+// Flicker-free repaint of the list well.  The well is too big for the panel
+// scratch, so it is repainted one band at a time: band i holds row i, its pill
+// shadow and the separator above it.  drawBand(i) is called with the band's
+// panel open and already cleared to WELL; draw row i there (or a message —
+// drawn in every band, the panel clips it to the strip).  Firmware-only: the
+// simulator's neuListClear() + rows is the same picture.
+void neuListPaint(void (*drawBand)(int band));
