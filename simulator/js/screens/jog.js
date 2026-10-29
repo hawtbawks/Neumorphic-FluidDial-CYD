@@ -69,6 +69,8 @@ function enterJogHoming() {
 function exitJogHoming() { releasePanelSprites(); }
 
 function drawJogHomingScreen() {
+  // Units may have changed under us: keep the live increment in step with the labels.
+  pendantJog.increment = currentIncrements().values[pendantJog.selectedIncrement];
   neuHeader("Jog");
   _jogKey = "";
   redrawJogAxisButtons();
