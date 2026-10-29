@@ -28,6 +28,7 @@
 
 // Screen files
 #include "screens/pendant_shared.h"
+#include "screens/neu_ui.h"
 #include "screens/screen_main_menu.h"
 #include "screens/screen_status.h"
 #include "screens/screen_jog_homing.h"
@@ -540,6 +541,7 @@ static void drawLinkIcon() {
 }
 
 void drawTitle(String title) {
+    neuHeaderDetach();   // legacy title bar: the tick draws its icons, not the neu chip
     display.fillRect(0, 0, 240, 35, COLOR_DARKER_BG);
     display.setTextColor(COLOR_TITLE);
     display.setTextSize(2);
@@ -646,6 +648,7 @@ static void callScreenEnter(PendantScreen s) {
 }
 
 void drawCurrentPendantScreen() {
+    neuHeaderDetach();   // a neumorphic screen re-attaches in neuHeader()
     switch (currentPendantScreen) {
         case PSCREEN_MAIN_MENU:        drawMainMenu();              break;
         case PSCREEN_STATUS:           drawStatusScreen();          break;
@@ -1137,8 +1140,14 @@ static void updateCurrentScreenSprites() {
     }
     // Refresh title-bar icons on every periodic tick — cheap direct draw.
     // The title bar is never occupied by sprites so these are always safe to call.
-    drawLinkIcon();
-    drawBatteryIcon();
+    // Neumorphic screens own a different header: chip, link bars and battery
+    // all repaint from neuHeaderUpdate(), and only when one of them changes.
+    if (neuHeaderActive()) {
+        neuHeaderUpdate();
+    } else {
+        drawLinkIcon();
+        drawBatteryIcon();
+    }
 }
 
 // ===== Static controller config items =====
@@ -2305,6 +2314,8 @@ void setup_pendant() {
 
     // Register scene so FluidNC callbacks update pendantMachine
     activate_scene(&pendantScene);
+
+    neuInit();   // shadow ramps + font metrics for the neumorphic kit
 
     // Enter initial screen (allocates sprites)
     callScreenEnter(currentPendantScreen);

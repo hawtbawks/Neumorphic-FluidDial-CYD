@@ -407,7 +407,12 @@ function neuDroValues(x, y) {
     neuCaption(Number(pendantMachine.mpos[i]).toFixed(2), x + 208, b - 7, NEU_TEXT3, "R");
   }
 }
-function neuDroKey() { return pendantMachine.wpos.slice(0, 3).join() + pendantMachine.mpos.slice(0, 3).join() + pendantMachine.inInches + pendantMachine.workCoordSystem; }
+function neuDroKey() {
+  const n = pendantMachine.numAxes;
+  return pendantMachine.wpos.slice(0, n).join() + "|" + pendantMachine.mpos.slice(0, n).join() + "|" + n + pendantMachine.inInches + pendantMachine.workCoordSystem;
+}
+// The DRO captions (work offset, Mach column) change with these, not with the numbers.
+function neuDroLabelsKey() { return pendantMachine.numAxes + "|" + pendantMachine.workCoordSystem; }
 
 // ---------- list screens (Files, Macros, Machines) ----------
 // crumb strip y 38 h 26 (path left, page readout right — tap it to advance a page)
