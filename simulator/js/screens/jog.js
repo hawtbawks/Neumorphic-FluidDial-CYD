@@ -48,8 +48,16 @@ function jogHomeLayout() {
   for (let i = 0; i < numHome; i++) out.push({ x: 10 + i * (w + gap), w: i === numHome - 1 ? 230 - (10 + i * (w + gap)) : w });
   return out;
 }
+// Jog feed limits.  The cap comes from $110 (X max rate), never below the 1000
+// mm/min floor.  The dial, the Feed label and the $J send all use these, so the
+// number on screen is always the feed that gets sent.
+function jogFeedCapMm() { return Math.max(1000, pendantJog.maxFeedRate); }
+function jogFeedCapIn() { return constrain((pendantJog.maxFeedRate / 25.4) | 0, 40, 400); }
+function jogFeedMm() { return constrain(pendantJog.jogSpeedMm, 1000, jogFeedCapMm()); }
+function jogFeedIn() { return constrain(pendantJog.jogSpeedIn, 40, jogFeedCapIn()); }
+
 function jogNav() {
-  const spd = pendantMachine.inInches ? pendantJog.jogSpeedIn : pendantJog.jogSpeedMm;
+  const spd = pendantMachine.inInches ? jogFeedIn() : jogFeedMm();
   return [NAV_HOME, { id: "speed", label: "F " + spd, icon: "gauge", w: 100, on: pendantJog.speedDialMode },
           { id: "work", label: "Work" }];
 }

@@ -746,15 +746,14 @@ static void handleEncoderDelta(int32_t delta) {
         updateSpindleRPMDisplay();
         return;
     } else if (currentPendantScreen == PSCREEN_JOG_HOMING) {
-        if (!pendantConnected) return;
-
+        // Feed and coarse step are local settings, so the dial sets them with or
+        // without a controller; only jogging itself (below) needs the link.
         if (pendantJog.speedDialMode) {
             // Adjust jog speed cap — metric: 500 mm/min/step, imperial: 20 ipm/step
-            int maxIn = constrain((int)(pendantJog.maxFeedRate / 25.4f), 40, 400);
             if (pendantMachine.inInches) {
-                pendantJog.jogSpeedIn = constrain(pendantJog.jogSpeedIn + delta * 20, 40, maxIn);
+                pendantJog.jogSpeedIn = constrain(jogFeedIn() + delta * 20, 40, jogFeedCapIn());
             } else {
-                pendantJog.jogSpeedMm = constrain(pendantJog.jogSpeedMm + delta * 500, 1000, pendantJog.maxFeedRate);
+                pendantJog.jogSpeedMm = constrain(jogFeedMm() + delta * 500, 1000, jogFeedCapMm());
             }
             redrawJogSpeedButton();
             updateJogAxisDisplay();
@@ -773,6 +772,7 @@ static void handleEncoderDelta(int32_t delta) {
             }
             return;
         }
+        if (!pendantConnected) return;
         if (pendantJog.selectedAxis < 0) return;  // no axis selected — do nothing
 
         // Continuous-jog cadence — record EVERY detent here, BEFORE the flow-control
@@ -932,12 +932,11 @@ static void handleEncoderDelta(int32_t delta) {
 
             char   cmd[64];
             if (pendantMachine.inInches) {
-                int maxIn = constrain((int)(pendantJog.maxFeedRate / 25.4f), 40, 400);
-                int speed = constrain(pendantJog.jogSpeedIn, 40, maxIn);
+                int speed = jogFeedIn();
                 snprintf(cmd, sizeof(cmd), "$J=G91 G20 %s%.4f F%d",
                          axisNames[pendantJog.selectedAxis].c_str(), distance, speed);
             } else {
-                int speed = constrain(pendantJog.jogSpeedMm, 1000, pendantJog.maxFeedRate);
+                int speed = jogFeedMm();
                 snprintf(cmd, sizeof(cmd), "$J=G91 G21 %s%.3f F%d",
                          axisNames[pendantJog.selectedAxis].c_str(), distance, speed);
             }

@@ -256,6 +256,7 @@ struct JogState {
 // Save jog preferences (coarseIdx + selectedIncrement) to NVS — defined in CNC_Pendant_UI.cpp
 extern void saveJogPrefs();
 
+
 // Request a feed/spindle override % — reached by a paced coarse+fine stepper in
 // the periodic loop (see CNC_Pendant_UI.cpp), not an immediate burst of bytes.
 extern void overrideSetFeedTarget(int pct);
@@ -403,6 +404,15 @@ extern SpindleState  pendantSpindle;
 extern FeedsState    pendantFeeds;
 extern ProbingState  pendantProbing;
 extern ProbeV2State  pendantProbeV2;
+
+// Jog feed limits.  The cap comes from $110 (X max rate), but never below the
+// 1000 mm/min floor — a slow machine reporting less used to invert the clamp.
+// The dial, the Feed button label and the $J send all use these, so the number
+// on screen is always the feed that gets sent.
+static inline int jogFeedCapMm() { return pendantJog.maxFeedRate > 1000 ? pendantJog.maxFeedRate : 1000; }
+static inline int jogFeedCapIn() { return constrain((int)(pendantJog.maxFeedRate / 25.4f), 40, 400); }
+static inline int jogFeedMm()    { return constrain(pendantJog.jogSpeedMm, 1000, jogFeedCapMm()); }
+static inline int jogFeedIn()    { return constrain(pendantJog.jogSpeedIn, 40, jogFeedCapIn()); }
 
 // ===== Deflection-calibration probe capture (defined in FluidNCModel.cpp) =====
 // show_probe() (fired on every [PRB:] report) records the machine X of each probe

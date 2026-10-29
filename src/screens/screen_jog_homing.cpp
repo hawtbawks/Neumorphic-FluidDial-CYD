@@ -95,8 +95,8 @@ enum { NAV_ID_SPEED = NAV_ID_FIRST, NAV_ID_WORK };
 static char s_speedLabel[16];
 
 static int jogNav(NeuNavItem* items) {
-    snprintf(s_speedLabel, sizeof(s_speedLabel), "F %d",
-             pendantMachine.inInches ? pendantJog.jogSpeedIn : pendantJog.jogSpeedMm);
+    // The feed as sent, i.e. already held to the machine's $110 cap.
+    snprintf(s_speedLabel, sizeof(s_speedLabel), "F %d", pendantMachine.inInches ? jogFeedIn() : jogFeedMm());
     items[0] = NAV_HOME;
     items[1] = { NAV_ID_SPEED, s_speedLabel, ICON_GAUGE, 100, pendantJog.speedDialMode };
     items[2] = { NAV_ID_WORK, "Work" };

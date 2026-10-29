@@ -98,11 +98,11 @@ function handleEncoderDelta(delta) {
     updateSpindleRPMDisplay();
     return;
   } else if (currentPendantScreen === PSCREEN_JOG_HOMING) {
-    if (!pendantConnected) return;
+    // Feed and coarse step are local settings, so the dial sets them with or
+    // without a controller; only jogging itself (below) needs the link.
     if (pendantJog.speedDialMode) {
-      const maxIn = constrain((pendantJog.maxFeedRate / 25.4) | 0, 40, 400);
-      if (pendantMachine.inInches) pendantJog.jogSpeedIn = constrain(pendantJog.jogSpeedIn + delta * 20, 40, maxIn);
-      else pendantJog.jogSpeedMm = constrain(pendantJog.jogSpeedMm + delta * 500, 1000, pendantJog.maxFeedRate);
+      if (pendantMachine.inInches) pendantJog.jogSpeedIn = constrain(jogFeedIn() + delta * 20, 40, jogFeedCapIn());
+      else pendantJog.jogSpeedMm = constrain(jogFeedMm() + delta * 500, 1000, jogFeedCapMm());
       redrawJogSpeedButton();
       updateJogAxisDisplay();
       return;
@@ -120,6 +120,7 @@ function handleEncoderDelta(delta) {
       }
       return;
     }
+    if (!pendantConnected) return;
     if (pendantJog.selectedAxis < 0) return;
 
     // Continuous-jog (MPG) detection + dial-stop watchdog (mirrors CNC_Pendant_UI.cpp):
@@ -215,7 +216,7 @@ function handleEncoderDelta(delta) {
     }
 
     const g21 = pendantMachine.inInches ? "G20" : "G21";
-    send_line_nowait(`$J=G91 ${g21} ${AXIS_NAMES[pendantJog.selectedAxis]}${fmtF(distance, 3)} F${pendantJog.jogSpeedMm}`);
+    send_line_nowait(`$J=G91 ${g21} ${AXIS_NAMES[pendantJog.selectedAxis]}${fmtF(distance, pendantMachine.inInches ? 4 : 3)} F${pendantMachine.inInches ? jogFeedIn() : jogFeedMm()}`);
     // sim convenience: reflect the jog in both the DRO (work) and the machine
     // position so the Work Area screen and the soft-limit clamp stay consistent.
     const ax = pendantJog.selectedAxis;
